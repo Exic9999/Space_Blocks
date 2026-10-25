@@ -1,0 +1,6 @@
+.venv/
+saves/
+__pycache__/
+*.pyc
+assets/music/*.wav
+shots/
