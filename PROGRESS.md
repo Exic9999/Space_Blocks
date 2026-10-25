@@ -11,6 +11,7 @@ Orders from commander; if ignored too long, NPCs go self-directed.
 
 ## Modules / status
 - [ ] skeleton + state machine (main.py)
+- [x] config.py, ships.py, crew.py, npc_ai.py, world.py (headless sim, tests/sim_test.py passes)
 - [ ] save.py (slots + autosave)
 - [ ] islands.py (agent: opus)
 - [ ] music.py (agent: opus)
