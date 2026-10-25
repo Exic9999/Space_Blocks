@@ -183,7 +183,7 @@ def draw_radar(game, screen):
 def draw_orders(game, screen):
     m = game.mouse
     ship = game.selected_ship()
-    bar = pygame.Rect(276, SCREEN_H - 56, 724, 52)
+    bar = pygame.Rect(276, SCREEN_H - 56, 730, 52)
     ui.panel(screen, bar, alpha=230)
     names = [("SCAN", "Ping for undiscovered islands (SPACE)", game.do_scan, True, C_ACCENT),
              ("RETURN", "Recall to hangar (R)", lambda: game.order("return"), ship is not None, C_ACCENT),
@@ -195,10 +195,10 @@ def draw_orders(game, screen):
              ("EXECUTOR", "Upgrade the carrier (U)", lambda: game.open("upgrades"), True, C_GOOD),
              ("MENU", "Pause menu (ESC)", lambda: game.open("menu"), True, C_DIM)]
     x = bar.x + 8
-    bw = 74
+    bw = 68
     for lab, tip, fn, en, col in names:
         ui.button(screen, game.hits, (x, bar.y + 8, bw, 36), lab, fn, m, en, col, 12, tip)
-        x += bw + 6
+        x += bw + 5
     ui.button(screen, game.hits, (x, bar.y + 8, 56, 36), "ALL" if game.all_mode else "ONE",
               lambda: setattr(game, "all_mode", not game.all_mode), m, True, C_WARN, 12,
               "Orders apply to: one pilot / all pilots (T)", active=game.all_mode)

@@ -27,13 +27,13 @@ def _pages(*pairs):
 
 
 BEATS = [
-    dict(id="welcome", cond=lambda w: w.time > 2,
+    dict(id="welcome", cond=lambda w: w.time > 0.3,
          pages=[("Mira", "Executor, this is Mira. Pre-flight is green. Where to, Commander?"),
                 ("ECHO", f"Tip: pick a pilot on the left, pick an island in the NAV list, then press LOCK ON. "
                          f"Press SCAN to ping for more islands. Idle pilots get restless.")]),
     dict(id="first_launch", cond=lambda w: w.stats["launches"] >= 1,
          pages=[("Tobias", "Launch clean. Fuel burn is nominal. Aetherite, here we come.")]),
-    dict(id="first_found", cond=lambda w: w.stats["found"] >= 1,
+    dict(id="first_found", cond=lambda w: w.stats["found"] >= 3,
          pages=[("ECHO", "A new island has appeared on the command deck HUD. Pilots can lock onto it when you give the word.")]),
     dict(id="first_deposit", cond=lambda w: w.stats["deposited"] >= 30,
          pages=[("ECHO", f"First {RES_NAME} secured in the tanks. Pilots keep a share to build their own ships — "

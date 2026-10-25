@@ -130,7 +130,7 @@ def draw(dest, cam, level, sensors, hangar, aeth_frac, t, docked_n):
     hx, hy = sp(W / 2, L - 42)
     pulse = 0.6 + 0.4 * math.sin(t * 3)
     g = pygame.Surface((int(84 * z) + 2, int(64 * z) + 2), pygame.SRCALPHA)
-    pygame.draw.ellipse(g, (255, 190, 90, int(60 + 50 * pulse)), g.get_rect())
+    pygame.draw.ellipse(g, (255, 190, 90, int(18 + 22 * pulse)), g.get_rect())
     dest.blit(g, g.get_rect(center=(hx, hy)), special_flags=pygame.BLEND_RGBA_ADD)
     # running lights
     if int(t * 2) % 2 == 0:

@@ -95,7 +95,8 @@ class Game:
             self.art.build_island(isl)
             isl.discovered = isl.discovered
         self.cam = view.Camera()
-        self.sel_ship, self.sel_island = 0, None
+        self.sel_ship = 0
+        self.sel_island = next((i.id for i in w.islands if i.discovered), None)
         self.dialogue, self.pending = None, []
         self.autosave_t = 0.0
         self.stack = []

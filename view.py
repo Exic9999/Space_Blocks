@@ -170,13 +170,13 @@ def draw_world(game, screen):
         sx, sy = cam.to_screen(s.x, s.y)
         if not (-80 < sx < SCREEN_W + 80 and -80 < sy < SCREEN_H + 80):
             continue
-        spr = ships.rotated(s.grid, s.ang, 6, tuple(s.color), z * 1.15)
+        spr = ships.rotated(s.grid, s.ang, 6, tuple(s.color), z * 1.7)
         if s.state not in ("docked", "mining") and s.fuel > 0:    # engine flame
             fl = pygame.Surface((24, 24), pygame.SRCALPHA)
             pygame.draw.circle(fl, (255, 170, 80, 130), (12, 12), 8)
             pygame.draw.circle(fl, (255, 240, 200, 210), (12, 12), 4)
-            bx = sx - math.cos(s.ang) * 14 * z
-            by = sy - math.sin(s.ang) * 14 * z
+            bx = sx - math.cos(s.ang) * 24 * z
+            by = sy - math.sin(s.ang) * 24 * z
             screen.blit(fl, fl.get_rect(center=(bx, by)), special_flags=pygame.BLEND_RGBA_ADD)
         screen.blit(spr, spr.get_rect(center=(sx, sy)))
         if s.state == "mining":
@@ -192,7 +192,7 @@ def draw_world(game, screen):
                 pygame.draw.line(screen, (255, 90, 120), (sx, sy), (px, py), 2)
                 pygame.draw.circle(screen, (255, 200, 220), (px, py), max(2, int(3 * z)))
         if s is sel_ship:
-            pygame.draw.circle(screen, C_ACCENT, (sx, sy), int(26 * z + 4), 1)
+            pygame.draw.circle(screen, C_ACCENT, (sx, sy), int(34 * z + 4), 1)
         if s.state != "docked":
             ui.text(screen, s.name.split()[0], (sx, sy - 22 * z - 8), 12, s.color, True, "midbottom", alpha=210)
     # lock-on lines from ships to their targets

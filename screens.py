@@ -43,8 +43,8 @@ def draw_title(game, screen):
     pts = [(ex, 120), (ex - 150, 250), (ex + 150, 250)]
     pygame.draw.polygon(screen, (40, 50, 72), pts)
     pygame.draw.polygon(screen, (110, 140, 175), pts, 1)
-    _glow_text(screen, "SPACE BLOCKS", (SCREEN_W // 2 - 150, 175 + 80), 84, TITLE_COL)
-    ui.text(screen, "A  DRIFT  ISLES  ODYSSEY", (SCREEN_W // 2 - 150, 255 + 80), 20, C_ACCENT, True, "center")
+    _glow_text(screen, "SPACE BLOCKS", (400, 235), 70, TITLE_COL)
+    ui.text(screen, "A  DRIFT  ISLES  ODYSSEY", (400, 300), 18, C_ACCENT, True, "center")
     m = game.mouse
     x0, y0 = 150, 380
     has = save.latest() is not None
