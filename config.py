@@ -43,7 +43,7 @@ UPGRADES = {
     "quarters": ("Crew Quarters", 3, 140, "Crew stay loyal longer"),
 }
 
-SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
+SAVE_DIR = os.environ.get("SPACE_BLOCKS_SAVE_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "saves")
 MUSIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "music")
 SHOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shots")
 

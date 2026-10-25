@@ -53,7 +53,7 @@ class Game:
         print("[boot] building space backdrop…", flush=True)
         self.art.build_space()
         s, m = islands.render_island(2024, 520)
-        self.title_island, self.title_meta = s, m
+        self.title_island, self.title_meta = s.convert_alpha(), m
         print("[boot] ready — title screen", flush=True)
 
     # ---- helpers -------------------------------------------------------

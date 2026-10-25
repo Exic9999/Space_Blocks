@@ -49,12 +49,13 @@ class Art:
         self._meta_z = {}
 
     def build_space(self):
-        self.backdrop = islands.render_backdrop((SCREEN_W, SCREEN_H), 3)
-        self.layers = islands.make_star_layers((SCREEN_W, SCREEN_H), 11, 3)
+        # convert once to the display format; unconverted alpha surfaces blit ~50x slower
+        self.backdrop = islands.render_backdrop((SCREEN_W, SCREEN_H), 3).convert()
+        self.layers = [l.convert_alpha() for l in islands.make_star_layers((SCREEN_W, SCREEN_H), 11, 3)]
 
     def build_island(self, isl):
         surf, meta = islands.render_island(isl.seed, isl.width)
-        self.island_surf[isl.id] = surf
+        self.island_surf[isl.id] = surf.convert_alpha()
         self.island_meta[isl.id] = meta
         lx, ly = meta["landing"]
         isl.land_dx = lx - surf.get_width() / 2
@@ -117,11 +118,11 @@ def _draw_storm(screen, cam, st, t):
 
 def _reticle(screen, pos, r, t, color, label=None):
     x, y = pos
+    rect = pygame.Rect(0, 0, max(8, 2 * r), max(8, 2 * r))
+    rect.center = (x, y)
     for i in range(4):
-        a = t * 1.3 + i * math.pi / 2
-        p1 = (x + math.cos(a) * r, y + math.sin(a) * r)
-        p2 = (x + math.cos(a + 0.5) * r, y + math.sin(a + 0.5) * r)
-        pygame.draw.line(screen, color, p1, p2, 2)
+        a = -(t * 1.3 + i * math.pi / 2)
+        pygame.draw.arc(screen, color, rect, a - 0.5, a, 3)
     pygame.draw.circle(screen, color, (x, y), 3)
     if label:
         ui.text(screen, label, (x, y + r + 8), 13, color, True, "midtop")
@@ -162,9 +163,8 @@ def draw_world(game, screen):
         age = w.time - t0
         if age < 3.0:
             rr = rad * z * (age / 3.0)
-            s = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
-            pygame.draw.circle(s, (90, 220, 255, int(160 * (1 - age / 3))), (ex, ey), max(2, int(rr)), 3)
-            screen.blit(s, (0, 0))
+            f = 1 - age / 3
+            pygame.draw.circle(screen, (int(90 * f), int(220 * f), int(255 * f)), (ex, ey), max(2, int(rr)), 3)
     # ships
     for s in w.ships:
         sx, sy = cam.to_screen(s.x, s.y)
@@ -205,15 +205,14 @@ def draw_world(game, screen):
         a = cam.to_screen(s.x, s.y)
         b = cam.to_screen(isl.x, isl.y + isl.land_dy)
         bright = s is sel_ship
-        col = (*s.color, 140 if bright else 50)
-        ls = pygame.Surface((SCREEN_W, SCREEN_H), pygame.SRCALPHA)
+        k = 0.75 if bright else 0.3
+        col = tuple(int(c * k) for c in s.color)
         d = math.hypot(b[0] - a[0], b[1] - a[1])
         n = int(d // 18)
         for i in range(0, n, 2):
             f1, f2 = i / max(n, 1), (i + 1) / max(n, 1)
-            pygame.draw.line(ls, col, (a[0] + (b[0] - a[0]) * f1, a[1] + (b[1] - a[1]) * f1),
+            pygame.draw.line(screen, col, (a[0] + (b[0] - a[0]) * f1, a[1] + (b[1] - a[1]) * f1),
                              (a[0] + (b[0] - a[0]) * f2, a[1] + (b[1] - a[1]) * f2), 2 if bright else 1)
-        screen.blit(ls, (0, 0))
         if bright:
             _reticle(screen, b, 22 * z + 8, t, s.color, "LOCKED")
     # off-screen arrow to selected island

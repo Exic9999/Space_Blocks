@@ -321,8 +321,9 @@ class World:
     def slow_tick(self):
         # loyalty: idle pilots lose patience and go their own way
         for s in self.ships:
-            if s.order is None and not s.independent:
-                s.loyalty -= 100.0 / npc_ai.patience(self, s)
+            if not s.independent:
+                rate = 1.0 if s.order is None else 0.33   # standing orders buy patience, not forever
+                s.loyalty -= rate * 100.0 / npc_ai.patience(self, s)
                 if s.loyalty <= 0:
                     s.loyalty = 0
                     s.independent = True

@@ -16,6 +16,14 @@ print("states seen:", sorted(states))
 assert {"outbound","mining","inbound","docked"} <= states
 print("aeth", round(w.aeth), "deposited", round(w.stats["deposited"]), "mira mined", round(mira.mined_total), "fund", round(mira.fund))
 assert mira.mined_total > 10
+# a pilot with a standing mine order, left alone ~3x patience, still goes independent
+import npc_ai
+w3 = W.World(seed=5); w3.verbose = False
+p = w3.ships[3 if len(w3.ships) > 3 else 0]
+w3.give_order(p, "mine", [i for i in w3.islands if i.discovered][0].id)
+for _ in range(int(60 * npc_ai.patience(w3, p) * 3.2)): w3.update(1/60)
+assert p.independent, "standing order must not buy infinite loyalty"
+print("standing-order pilot went independent OK")
 # idle crew go independent
 for _ in range(60*400): w.update(1/60)
 print("independent:", [(s.name, s.independent) for s in w.ships], "launches", w.stats["launches"])

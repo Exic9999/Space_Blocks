@@ -133,5 +133,7 @@ def rotated(grid, ang, cell=6, tint=None, scale=1.0):
             base = pygame.transform.smoothscale(
                 base, (max(2, int(base.get_width() * scale)), max(2, int(base.get_height() * scale))))
         s = pygame.transform.rotate(base, -(step * 6 + 90))
+        if len(_cache) > 1500:
+            _cache.clear()
         _cache[key] = s
     return s

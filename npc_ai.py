@@ -86,7 +86,7 @@ def plan_for(world, ship):
     """What should a serviced, docked pilot do next? -> ('mine', isl) | ('scout',) | None"""
     st = ships.stats(ship.grid)
     o = ship.order
-    if o is None:
+    if ship.independent or o is None:
         if ship.independent:
             isl = best_island(world, ship, st)
             return ("mine", isl) if isl else ("scout",)
