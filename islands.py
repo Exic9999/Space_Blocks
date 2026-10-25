@@ -254,9 +254,12 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     """
     width = int(width)
     height = int(width * 0.85)
-    px = max(2, int(round(width / 120.0)))
-    GW = int(math.ceil(width / px))
-    GH = int(math.ceil(height / px))
+    # fixed block grid -> same island at every width (scaled nearest-neighbour)
+    GW = 120
+    GH = int(math.ceil(GW * 0.85))
+    kx = width / GW
+    ky = height / GH
+    px = max(1, int(round(kx)))
 
     rng = np.random.default_rng([int(seed) & 0xFFFFFFFF, 0x15A1])
     rr = random.Random(int(seed) * 7919 + 17)
@@ -267,7 +270,7 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     hue = rr.random()
     gset = _GRASS_SETS[int(hue * len(_GRASS_SETS)) % len(_GRASS_SETS)]
     rset = _ROCK_SETS[rr.randrange(len(_ROCK_SETS))]
-    vein_col = _mix((90, 230, 255), (200, 120, 255), rr.random())
+    vein_col = rr.choice([(80, 255, 200), (110, 240, 255), (200, 110, 255), (255, 120, 220), (170, 130, 255)])
     crystal_hue = 0.62 + rr.random() * 0.14  # blue .. violet
 
     # ---------------- plateau (3/4 view ellipse) ----------------
@@ -294,17 +297,17 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     xr = int(xs_idx[cols_any].max())
 
     # ---------------- underside profile ----------------
-    depth_total = GH * rr.uniform(0.40, 0.50)
+    depth_total = GH * rr.uniform(0.44, 0.54)
     u = (xs_idx - cx) / rx  # -1..1 across plateau
-    base = np.clip(1 - np.abs(u) ** 2, 0, 1) ** 0.8 * rr.uniform(0.25, 0.4)
+    base = np.clip(1 - np.abs(u) ** 2, 0, 1) ** 0.7 * rr.uniform(0.18, 0.3)
     shape = base.copy()
     n_lobes = rr.choice([1, 2, 2, 3, 3])
     lobes = []
     for i in range(n_lobes):
-        c = rr.uniform(-0.45, 0.45) if n_lobes > 1 else rr.uniform(-0.15, 0.15)
-        w = rr.uniform(0.35, 0.7)
-        a = rr.uniform(0.6, 1.0) if i == 0 else rr.uniform(0.35, 0.85)
-        p = rr.uniform(1.3, 2.4)
+        c = rr.uniform(-0.4, 0.4) if n_lobes > 1 else rr.uniform(-0.15, 0.15)
+        w = rr.uniform(0.45, 0.8) if i == 0 else rr.uniform(0.3, 0.55)
+        a = rr.uniform(0.85, 1.0) if i == 0 else rr.uniform(0.35, 0.75)
+        p = rr.uniform(1.4, 2.2)
         lobes.append((c, w, a))
         shape = np.maximum(shape, a * np.clip(1 - np.abs((u - c) / w), 0, 1) ** p)
     jag = (_noise1d(rng, GW, 3.0) - 0.5) * 4 + (_noise1d(rng, GW, 1.2) - 0.5) * 2.0
@@ -320,7 +323,7 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
                 k = 1 - abs(x - x0) / (hw + 1)
                 if k > 0:
                     bottom[x] = max(bottom[x], bottom[x] + ln * k ** 1.4 - 1)
-    bottom = np.where(cols_any, np.minimum(bottom, GH * 0.88), -1).astype(np.int32)
+    bottom = np.where(cols_any, np.minimum(bottom, GH * 0.9), -1).astype(np.int32)
     rock = (YY >= (yfront[None, :] - 1)) & (YY <= bottom[None, :]) & cols_any[None, :] & ~plateau
     rock |= (YY >= yfront[None, :]) & (YY <= bottom[None, :]) & cols_any[None, :]
 
@@ -343,12 +346,16 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     f3 = f[..., None]
     rc = np.where(f3 < 0.5, top_c + (mid_c - top_c) * (f3 / 0.5), mid_c + (bot_c - mid_c) * ((f3 - 0.5) / 0.5))
     # voxel facets: quantized coarse noise
-    facet = _value_noise(rng, GH, GW, 5.0)
-    facet = np.floor(facet * 5) / 5
+    facet = _value_noise(rng, GH, GW, 4.0)
+    facet = np.floor(facet * 4) / 4
     strata_n = _value_noise(rng, GH, GW, 7.0)
-    band = (np.floor((YY + strata_n * 4.0) / 2.5) % 3)
-    mul = 0.86 + facet * 0.28
-    mul *= np.where(band == 0, 1.07, np.where(band == 1, 0.97, 0.9))
+    band = (np.floor((YY + strata_n * 4.0) / 3.0) % 3)
+    # ledge highlight: top row of each band catches light
+    band_up = np.floor((YY - 1 + strata_n * 4.0) / 3.0) % 3
+    ledge = band != band_up
+    mul = 0.8 + facet * 0.4
+    mul *= np.where(band == 0, 1.12, np.where(band == 1, 0.95, 0.8))
+    mul *= np.where(ledge, 1.12, 1.0)
     lat = np.clip((XX - cx) / rx, -1.2, 1.2)
     mul *= 1.08 - 0.22 * (lat + 1) / 2
     mul *= 0.9 + 0.2 * cv.jit
@@ -370,27 +377,62 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     rc[right_e2] *= 0.82
     rc[right_e] *= 0.75
     rc[left_e] = rc[left_e] * 1.15 + np.array([14, 10, 18], np.float32)
+    bot_e = nb_empty(rock, 1, 0) & (XX < cx + rx * 0.3)
+    rc[bot_e] = rc[bot_e] * 0.8 + np.array(vein_col, np.float32) * 0.35  # nebula bounce rim
 
-    # glowing veins
-    vn = _fbm(rng, GH, GW, 10.0, octaves=2)
-    vein = (np.abs(vn - 0.5) < 0.028) & rock & (f > 0.22) & ~right_e & ~left_e
-    vn2 = _fbm(rng, GH, GW, 7.0, octaves=2)
-    vein |= (np.abs(vn2 - 0.5) < 0.018) & rock & (f > 0.45) & ~right_e & ~left_e
-    vglow = _box_blur(vein.astype(np.float32), 2) * rock
+    # glowing veins: branching crack random-walks through the rock
+    vein = np.zeros((GH, GW), bool)
+    rock_cols = xs_idx[cols_any & (bottom - yfront > 10)]
+    n_cracks = rr.randint(4, 8)
+    for _ in range(n_cracks if len(rock_cols) else 0):
+        x = float(rr.choice(list(rock_cols)))
+        xi = int(x)
+        y = yfront[xi] + 6 + rr.uniform(0, (bottom[xi] - yfront[xi]) * 0.35)
+        dx = rr.choice([-1, 1]) * rr.uniform(0.7, 1.0)
+        stack = [(x, y, dx, rr.randint(10, 22))]
+        while stack:
+            x, y, dx, ln = stack.pop()
+            for _s in range(ln):
+                xi, yi = int(round(x)), int(round(y))
+                if not (0 <= xi < GW and 0 <= yi < GH) or not rock[yi, xi]:
+                    break
+                vein[yi, xi] = True
+                if rr.random() < 0.58:
+                    x += dx
+                else:
+                    y += 1
+                if rr.random() < 0.2:
+                    dx = -dx * rr.uniform(0.8, 1.1)
+                if rr.random() < 0.06 and len(stack) < 6:
+                    stack.append((x, y, -dx, int(ln * 0.5)))
+    vein &= ~right_e & ~left_e
+    vglow = _box_blur(vein.astype(np.float32), 1) * rock
+    vglow2 = _box_blur(vein.astype(np.float32), 3) * rock
     vc = np.array(vein_col, np.float32)
-    rc += vglow[..., None] * vc * 0.9
-    rc[vein] = vc * 0.85 + 40
+    rc += (vglow * 0.55 + vglow2 * 0.6)[..., None] * vc
+    rc[vein] = vc * 0.7 + 75
     rc = np.clip(rc, 0, 255)
     img[rock, :3] = rc[rock].astype(np.uint8)
     img[rock, 3] = 255
 
     # debris
     for (dx, dy, drx) in debris:
-        rpal = np.array([_scale(rset[2], 0.9), _scale(rset[1], 0.9), rset[1], _scale(rset[0], 1.05)], np.uint8)
-        cv.shade_blob(dx, dy, drx, drx * 0.75, rpal, rough=1.2)
-        cv.shade_blob(dx, dy + drx * 0.5, drx * 0.55, drx * 0.8, rpal, rough=1.0)
-        gpal = _pal4(gset[0], (0.7, 1.0, 1.2, 1.35))
-        cv.rect(dx - drx + 0.5, dy - drx * 0.75, dx + drx, dy - drx * 0.75 + 1, gpal[1])
+        h = drx * rr.uniform(1.6, 2.4)
+        skew = rr.uniform(-0.4, 0.4)
+        has_grass = rr.random() < 0.7
+        for k in range(int(h) + 1):
+            tt = k / max(h, 1)
+            half = drx * (1 - tt) ** 0.9 + rr.uniform(-0.4, 0.4)
+            ccx = dx + skew * k
+            col_k = _mix(rset[0], rset[2], min(1.0, tt * 1.2))
+            for x in range(int(round(ccx - half)), int(round(ccx + half)) + 1):
+                rel = (x - (ccx - half)) / max(2 * half, 1)
+                c = _scale(col_k, 1.15 - 0.4 * rel)
+                if k == 0 and has_grass:
+                    c = _scale(gset[0], 1.1)
+                elif k == 1 and has_grass:
+                    c = _scale(gset[0], 0.7)
+                cv.put(x, dy + k, c)
 
     # ---------------- grass top ----------------
     gbase = np.array(gset[0], np.float32)
@@ -431,6 +473,26 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
             y = yf + k
             if 0 <= y < GH and rock[y, x] and not vein[y, x]:
                 img[y, x, :3] = (img[y, x, :3] * (0.72 + 0.09 * (k - 5))).astype(np.uint8)
+    # hanging vines and roots over the cliff face
+    vine_d = _scale(gset[0], 0.5)
+    vine_m = _scale(gset[0], 0.8)
+    for _ in range(int((xr - xl) * rr.uniform(0.12, 0.22))):
+        x = rr.randint(xl + 2, xr - 2)
+        y0 = yfront[x] + 3
+        ln = rr.randint(3, 12)
+        root = rr.random() < 0.3
+        for k in range(ln):
+            y = y0 + k
+            if y > bottom[x] - 1:
+                break
+            if root:
+                cv.put(x, y, (70, 48, 40) if k % 3 else (96, 66, 50))
+            else:
+                cv.put(x, y, vine_d if k % 2 else vine_m)
+                if rr.random() < 0.3:
+                    cv.put(x + rr.choice([-1, 1]), y, vine_m)
+        if not root and rr.random() < 0.4:
+            cv.put(x, min(y0 + ln, bottom[x] - 1), rr.choice([(255, 150, 190), (255, 236, 120), (190, 160, 255)]))
 
     # ---------------- water: rivers + waterfalls ----------------
     n_wf = rr.choice([1, 1, 2, 2, 2, 3])
@@ -447,7 +509,7 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
         if wx < xl + 2 or wx > xr - 3 or any(abs(wx - o) < 10 for o in used):
             continue
         used.append(wx)
-        ww = rr.choice([2, 2, 3, 3, 4]) if abs(uu) < 0.7 else rr.choice([2, 2, 3])
+        ww = rr.choice([3, 3, 4, 4, 5]) if abs(uu) < 0.7 else rr.choice([2, 3, 3])
         wf_list.append((wx, ww))
     water_mask = np.zeros((GH, GW), bool)
     wcol = np.array([70, 150, 226], np.uint8)
@@ -494,21 +556,24 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
             if not (0 <= gyi < GH and plateau[gyi, gxi]) or water_mask[max(0, gyi - 2):gyi + 3, max(0, gxi - 2):gxi + 3].any():
                 continue
             kind = "top"
+            base_ang = 0.0
         else:
-            gx = rr.uniform(xl + 6, xr - 6)
-            gxi = int(gx)
-            if not cols_any[gxi]:
+            gyi = int(cy + ry + rr.uniform(4, depth_total * 0.6))
+            if not (0 <= gyi < GH):
                 continue
-            span_c = bottom[gxi] - yfront[gxi]
-            if span_c < 10:
+            row = np.nonzero(rock[gyi])[0]
+            if len(row) < 6:
                 continue
-            gy = yfront[gxi] + span_c * rr.uniform(0.3, 0.75)
+            side = rr.choice([-1, 1])
+            gx = float(row.min() + 1) if side < 0 else float(row.max() - 1)
+            gy = float(gyi)
             kind = "rock"
+            base_ang = side * rr.uniform(0.75, 1.25)
         if any(math.hypot(gx - c[0], gy - c[1]) < 9 for c in crystals):
             continue
-        crystals.append((gx, gy, rr.uniform(3.2, 5.0), kind))
+        crystals.append((gx, gy, rr.uniform(3.6, 5.4), kind, base_ang))
     while len(crystals) < 2:  # guarantee
-        crystals.append((cx + (len(crystals) * 2 - 1) * rx * 0.4, cy + ry * 0.3, 3.5, "top"))
+        crystals.append((cx + (len(crystals) * 2 - 1) * rx * 0.4, cy + ry * 0.3, 4.0, "top", 0.0))
 
     # landing clearing
     lx, ly = cx + rr.uniform(-0.25, 0.25) * rx, cy + rr.uniform(-0.1, 0.35) * ry
@@ -520,7 +585,7 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     # ---------------- vegetation placement ----------------
     tree_w = {
         "round": rr.uniform(0.6, 1.4), "pine": rr.uniform(0.2, 1.4), "cypress": rr.uniform(0.2, 1.0),
-        "blossom": rr.uniform(0.15, 0.7), "willow": rr.uniform(0.0, 0.8), "shroom": rr.uniform(0.0, 0.35),
+        "blossom": rr.uniform(0.15, 0.7), "willow": rr.uniform(0.0, 0.8), "shroom": rr.uniform(0.0, 0.25) * (rr.random() < 0.45),
     }
     kinds = list(tree_w)
     weights = [tree_w[k] for k in kinds]
@@ -541,8 +606,11 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
             continue
         if math.hypot((tx - lx) / 1.0, (ty - ly) * 1.8) < 6.5:
             continue
-        if any(c[3] == "top" and math.hypot(tx - c[0], (ty - c[1]) * 1.5) < 4.5 for c in crystals):
-            continue
+        if any(c[3] == "top" and (math.hypot(tx - c[0], (ty - c[1]) * 1.5) < 4.5 or
+                                  (abs(tx - c[0]) < c[2] + 3 and 0 < ty - c[1] < 13)) for c in crystals):
+            continue  # keep crystals visible: nothing tall right in front of them
+        if abs(tx - lx) < 6 and 0 < ty - ly < 12:
+            continue  # same for the landing clearing
         if any(math.hypot(tx - ox, (ty - oy) * 1.8) < 2.6 for ox, oy in occupied):
             continue
         occupied.append((tx, ty))
@@ -555,6 +623,8 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
         txi, tyi = int(tx), int(ty)
         if 0 <= tyi < GH and 0 <= txi < GW and plateau[tyi, txi] and not water_mask[tyi, txi]:
             if math.hypot(tx - lx, (ty - ly) * 1.8) < 4:
+                continue
+            if any(c[3] == "top" and abs(tx - c[0]) < c[2] + 1 and -1 < ty - c[1] < 4 for c in crystals):
                 continue
             items.append(("bush", ty, tx, rr.random(), rr.random()))
     for c in crystals:
@@ -582,7 +652,7 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
 
     crystal_draw = []
 
-    def draw_crystal(gx, gy, size, rrc):
+    def draw_crystal(gx, gy, size, rrc, base_ang=0.0):
         """Cluster of shards; base at (gx, gy) pointing up (or sideways if on rock)."""
         base_c = _hsv(crystal_hue + rrc.uniform(-0.03, 0.03), 0.55, 0.95)
         dark = _hsv(crystal_hue + 0.04, 0.75, 0.55)
@@ -591,30 +661,31 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
         n = rrc.randint(3, 5)
         shards = []
         for i in range(n):
-            a = rrc.uniform(-0.6, 0.6) if i else rrc.uniform(-0.12, 0.12)
+            a = base_ang + (rrc.uniform(-0.6, 0.6) if i else rrc.uniform(-0.12, 0.12))
             ln = size * (1.6 if i == 0 else rrc.uniform(0.7, 1.2))
             w = max(1.0, size * (0.42 if i == 0 else rrc.uniform(0.25, 0.38)))
             ox = rrc.uniform(-size * 0.5, size * 0.5) if i else 0
             shards.append((a, ln, w, ox))
-        shards.sort(key=lambda s: -abs(s[0]))
+        shards.sort(key=lambda s: -abs(s[0] - base_ang))
+        pdx, pdy = math.cos(base_ang), math.sin(base_ang)
         for (a, ln, w, ox) in shards:
             dxu, dyu = math.sin(a), -math.cos(a)
             steps = int(ln * 1.6) + 1
             for s in range(steps + 1):
                 tt = s / steps
                 ww = w * (1.0 if tt < 0.65 else max(0.0, 1 - (tt - 0.65) / 0.35))
-                bx = gx + ox + dxu * ln * tt
-                by = gy + dyu * ln * tt
-                for k in range(-int(math.ceil(ww)), int(math.ceil(ww)) + 1):
-                    if abs(k) > ww + 0.2:
-                        continue
-                    qx = bx + k * math.cos(a)
-                    qy = by + k * math.sin(a)
-                    col = light if k < 0 else (base_c if k == 0 else dark)
-                    if abs(k) < 0.5 and tt > 0.75:
+                bx = gx + ox * pdx + dxu * ln * tt
+                by = gy + ox * pdy + dyu * ln * tt
+                kk = -ww
+                while kk <= ww + 0.01:
+                    qx = bx + kk * math.cos(a)
+                    qy = by + kk * math.sin(a)
+                    col = light if kk < -0.25 else (base_c if kk < 0.6 else dark)
+                    if abs(kk) < 0.6 and tt > 0.72:
                         col = core
                     cv.put(round(qx), round(qy), col)
-        crystal_draw.append((gx, gy - size * 0.9, size))
+                    kk += 0.5
+        crystal_draw.append((gx + math.sin(base_ang) * size * 0.9, gy - math.cos(base_ang) * size * 0.9, size))
 
     rrc = random.Random(seed * 31 + 5)
     for it in items:
@@ -686,7 +757,7 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
                 cv.put(dx, int(ty - h + ln), pal[2])
         elif kind == "shroom":
             h = (5 + r2 * 4) * size
-            stem = _mix((230, 220, 200), (120, 150, 190), haze)
+            stem = _mix((206, 196, 210), (120, 150, 190), haze)
             cv.rect(tx, ty - h, tx + 2, ty + 1, stem)
             cv.rect(tx, ty - h, tx + 1, ty + 1, _scale(stem, 1.08))
             capc = _hsv(rr.choice([0.5, 0.8, 0.9, 0.05]), 0.6, 0.85)
@@ -700,7 +771,7 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     # rock-face crystals jut sideways from underside
     for c in crystals:
         if c[3] == "rock":
-            draw_crystal(c[0], c[1], c[2] * 0.85, rrc)
+            draw_crystal(c[0], c[1], c[2] * 0.85, rrc, c[4])
 
     # ---------------- outline (dark 1-block on silhouette) ----------------
     solid = img[..., 3] > 0
@@ -716,14 +787,15 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
     # ---------------- waterfalls over the lip / rock face ----------------
     waterfalls = []
     wf_widths = []
+    mist_pts = []
     for (wx, ww) in wf_list:
         top = int(yfront[wx])
         bot_rock = int(max(bottom[max(0, wx - 1):wx + ww + 1].max(), top))
-        tail = int(rr.uniform(12, 20))
+        tail = int(rr.uniform(22, 34))
         end = min(GH, bot_rock + tail)
         for y in range(top, end):
             fall_t = (y - top)
-            spread = 0 if y <= bot_rock else int((y - bot_rock) / 7)
+            spread = 0 if y <= bot_rock else int((y - bot_rock) / 9)
             for x in range(wx - spread, wx + ww + spread):
                 if not (0 <= x < GW):
                     continue
@@ -732,9 +804,12 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
                     a = 235
                 else:
                     a = int(235 * max(0.0, 1 - (y - bot_rock) / tail) ** 1.3)
-                    if cv.jit[y, x] < (y - bot_rock) / tail * 0.7:
+                    if cv.jit[y, x] < ((y - bot_rock) / tail) ** 1.6 * 0.85:
                         continue
-                col = wcol2 if stripe == 0 else (wcol if stripe < 4 else wdeep)
+                if y <= bot_rock:
+                    col = wcol2 if stripe == 0 else (wcol if stripe < 4 else wdeep)
+                else:
+                    col = (215, 240, 255) if stripe == 0 else ((150, 205, 245) if stripe < 4 else wcol)
                 if fall_t < 2:
                     col = (220, 245, 255)
                 if x in (wx - spread, wx + ww + spread - 1) and ww > 2:
@@ -749,29 +824,31 @@ def render_island(seed: int, width: int = 360) -> tuple[pygame.Surface, dict]:
         # foam lip
         for x in range(wx - 1, wx + ww + 1):
             cv.put(x, top - 1, (235, 250, 255))
-        waterfalls.append(((wx + ww / 2.0) * px, top * px, (GH - top) * px + int(height * 0.25)))
-        wf_widths.append(ww * px)
+        waterfalls.append(((wx + ww / 2.0) * kx, top * ky, int((bot_rock + tail - top) * ky * 1.2)))
+        wf_widths.append(max(2, int(round(ww * kx))))
+        mist_pts.append(((wx + ww / 2.0) * kx, (bot_rock + tail * 0.75) * ky, (ww + 5) * kx))
 
     # ---------------- compose final surface ----------------
     low = _arr_to_surface(img)
-    big = pygame.transform.scale(low, (GW * px, GH * px))
-    surf = pygame.Surface((width, height), pygame.SRCALPHA)
-    surf.blit(big, (0, 0))
+    surf = pygame.transform.scale(low, (width, height))
 
     # baked soft halo around crystals (static part of the glow)
     cr_meta = []
     for (gx, gy, size) in crystal_draw:
-        x, y, r = gx * px, gy * px, size * px * 1.6
+        x, y, r = gx * kx, gy * ky, size * kx * 1.6
         cr_meta.append((int(x), int(y), float(r)))
     for (x, y, r) in cr_meta:
         halo = _halo_alpha(int(r * 1.3), _hsv(crystal_hue, 0.5, 1.0))
         surf.blit(halo, (x - halo.get_width() // 2, y - halo.get_height() // 2))
+    for (x, y, r) in mist_pts:
+        halo = _halo_alpha(int(r), (190, 225, 255))
+        surf.blit(halo, (int(x) - halo.get_width() // 2, int(y) - halo.get_height() // 2))
 
-    rad = 0.5 * max((xr - xl) * px, (max(bottom.max(), 0) - (cy - ry - 8)) * px)
+    rad = 0.5 * max((xr - xl) * kx, (max(bottom.max(), 0) - (cy - ry - 8)) * ky)
     meta = {
         "waterfalls": [(int(x), int(y), int(L)) for (x, y, L) in waterfalls],
         "crystals": cr_meta,
-        "landing": (int(lx * px), int(ly * px)),
+        "landing": (int(lx * kx), int(ly * ky)),
         "radius": float(rad),
         "hue": float(hue),
         "_wf_w": wf_widths,
@@ -851,7 +928,7 @@ def draw_island_fx(dest: pygame.Surface, topleft: tuple[int, int], meta: dict, t
         y0 = oy + y
         if not clip.colliderect((x0 - 30, y0, w + 60, L + 30)):
             continue
-        n = 10 + w // 2
+        n = 14 + w
         for i in range(n):
             sp = 55 + 50 * _h(i, wi + seed)
             yy = ((_h(i, 3 + wi) * L + t * sp) % L)
@@ -860,7 +937,7 @@ def draw_island_fx(dest: pygame.Surface, topleft: tuple[int, int], meta: dict, t
                 continue
             spread = int(yy / L * w * 0.8)
             xx = x0 - spread + int(_h(i, 7 + wi) * (w + 2 * spread))
-            ln = 3 + int(5 * fade)
+            ln = 4 + int(8 * fade)
             v = int(110 * fade ** 1.5) + 20
             fill((v * 3 // 5, v * 4 // 5, v), (xx, y0 + int(yy), max(1, px // 2 + (i & 1)), ln), special_flags=add)
         # lip shimmer
@@ -870,16 +947,15 @@ def draw_island_fx(dest: pygame.Surface, topleft: tuple[int, int], meta: dict, t
             if b > 0:
                 fill((b, b, b), (x0 + int(_h(i, wi) * w), y0 - px, px, px), special_flags=add)
         # drifting mist puffs near the end of the visible fall
-        mist = _glow_sprite(int(7 + w * 0.6), (120, 160, 210), 2)
-        mw = mist.get_width() // 2
         for i in range(4):
             phase = (t * 0.12 + _h(i, 11 + wi)) % 1.0
             my = y0 + L * (0.55 + 0.4 * phase)
             mx = x0 + w // 2 + math.sin(t * 0.7 + i * 1.9) * (6 + 14 * phase)
             lvl = int((1 - abs(phase * 2 - 1)) * (_GLOW_LEVELS - 1))
             if lvl > 0:
-                dest.blit(_glow_sprite(int(7 + w * 0.6), (120, 160, 210), lvl), (int(mx) - mw, int(my) - mw),
-                          special_flags=add)
+                g = _glow_sprite(int(7 + w * 0.6), (150, 190, 240), lvl)
+                mw = g.get_width() // 2
+                dest.blit(g, (int(mx) - mw, int(my) - mw), special_flags=add)
     col = meta.get("_crystal_rgb", (150, 130, 255))
     for ci, (x, y, r) in enumerate(meta["crystals"]):
         s = 0.5 + 0.5 * math.sin(t * 2.2 + ci * 1.7 + seed * 0.3)

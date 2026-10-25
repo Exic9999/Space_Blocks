@@ -10,7 +10,7 @@ NPC pilots fly mini ships to floating islands for Aetherite, dock in the hangar 
 Orders from commander; if ignored too long, NPCs go self-directed.
 
 ## Modules / status
-- [ ] skeleton + state machine (main.py)
+- [x] main.py, hud.py, view.py, screens.py, audio.py, story.py, save.py, executor.py (tests/smoke.py passes)
 - [x] config.py, ships.py, crew.py, npc_ai.py, world.py (headless sim, tests/sim_test.py passes)
 - [ ] save.py (slots + autosave)
 - [ ] islands.py (agent: opus)
