@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 assets/music/*.wav
 shots/
+
+pc/bin/
+pc/obj/
+pc/shots/

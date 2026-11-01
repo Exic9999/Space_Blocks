@@ -45,3 +45,12 @@ All suites (sim_test, smoke, soak, web3d) passed on Windows.
 - Machine toolchains (checked): no rustc/cargo/gcc/cl/dotnet/go/node on PATH. Python 3.12 + `.venv` exists (pygame-ce, numpy, playwright). winget works (`winget install ...`).
 - Existing Python 2D game (world.py, npc_ai.py etc.) is a separate sim; the 3D web game has its own JS sim (do not mix).
 **Next steps:** (1) decide language/engine (candidates: C# .NET + Raylib-cs, or Rust + macroquad/wgpu; weigh toolchain install cost on this machine), (2) install toolchain, (3) port sim + save format first with a headless test mirroring tests/web3d, (4) port rendering/HUD/walk mode, (5) benchmark frame time vs browser build, (6) update this section + commit.
+
+### Native port — decisions & status (updated 2026-11-01)
+- **Chosen stack:** C# / .NET 8 + Raylib-cs 8.1.0 (OpenGL). Lives in `pc/` (project `pc/SpaceBlocks.csproj`). `pc/bin`, `pc/obj`, `pc/shots` are git-ignored.
+- **Toolchain (user-scope, no admin):** .NET SDK 8.0.427 at `%LOCALAPPDATA%\dotnet8`. Use: `$env:PATH="$env:LOCALAPPDATA\dotnet8;$env:PATH"; cd pc; dotnet run -c Release`. GPU: Intel Iris Xe (OpenGL OK; verified a raylib window + screenshot works).
+- **Fully read** mobile3d/index.html. Port map: sim = lines 80-285 + walk collision 760-791 (RECTS/BLOCK/TANKS/PADS); rendering = 287-757; HUD/input 806-897; save = localStorage JSON (replace with `%APPDATA%/SpaceBlocks/save.json`); audio = WebAudio synth (replace with generated raylib Wave/Sound).
+- **Fidelity plan:** simple lit/vertex-colored meshes + additive glow billboards (no PBR/PMREM); immediate-mode HUD; WASD + mouse-look walk mode (no joystick). Accept: exact RNG parity with web is impossible (unseeded Math.random) — test invariants, not outputs.
+- **Acceptance spec:** tests/web3d/test_3d.py (50 checks) — port invariants: orders, picking, bridge→corridor→hangar traversal, wall blocking, save/continue, crawl skip, legacy-save finale rule, dt=0.6 soak (no NaN, no ship stuck >10 game-min).
+- **Milestones:** [ ] 1 sim + headless `--selftest` · [ ] 2 command view (islands, Executor, ships, storms, orbit camera, picking) · [ ] 3 HUD/upgrades/menu/title/crawl · [ ] 4 walk mode · [ ] 5 cabins · [ ] 6 save + audio · [ ] 7 `--bench`, publish self-contained exe.
+- Next action: port the sim to `pc/Sim.cs`, then `--selftest`.
