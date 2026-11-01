@@ -11,7 +11,7 @@ public sealed unsafe partial class Game
     readonly List<Rectangle> hit = new(), prevHit = new();
     Vector2 mouse, dragStart; bool dragging; float dragMoved;
     bool clickPressed; int curLayer;
-    public bool Inject; public Vector2 InjMouse; public bool InjClick;
+    public bool Inject; public Vector2 InjMouse; public bool InjClick, InjDown, InjUp; bool mouseDown, mouseUp;
     int TopLayer => crawlActive ? 2 : (showSheet || showMenu) ? 1 : 0;
     float S => Math.Max(.7f, Raylib.GetScreenHeight() / 720f);
     static readonly Color Panel = new((byte)11, (byte)19, (byte)38, (byte)225), Edge = new((byte)60, (byte)130, (byte)170, (byte)255), Dim = new((byte)125, (byte)155, (byte)179, (byte)255), Txt = new((byte)200, (byte)225, (byte)240, (byte)255), Accent = new((byte)90, (byte)220, (byte)255, (byte)255);
@@ -55,10 +55,10 @@ public sealed unsafe partial class Game
     void EndCrawl() { if (!crawlActive) return; crawlActive = false; var d = crawlDone; crawlDone = null; d?.Invoke(); }
 
     // ---------------- input ----------------
-    Ship? nearShip, nearNpc;
+    Ship? nearShip, nearNpc; bool nearHelm;
     void FindNearby()
     {
-        nearShip = nearNpc = null;
+        nearShip = nearNpc = null; nearHelm = Mx.Hypot(walk.x, walk.z + 22) < 3.8f;
         foreach (var s in sim.G.ships)
         {
             var p = Data.Pads[s.idx % 5];
@@ -66,11 +66,14 @@ public sealed unsafe partial class Game
             if (s.state == "docked" && (s.ph is "exit" or "idle" or "back") && Mx.Hypot(walk.x - s.px, walk.z - s.pz) < 3.2f) nearNpc = s;
         }
     }
-    void Order(string type) { if (sel == null) return; Play("order"); if (type == "lock") { if (selIsl != null && selIsl.found) sim.GiveOrder(sel, "mine", selIsl.id); } else sim.GiveOrder(sel, type); }
+    void Order(string type)
+    {
+        if (selExec) { Play("order"); if (type is "hold" or "return") sim.Halt(); else if (type == "lock" && selIsl != null && selIsl.found) { sim.SailToIsland(selIsl); execFollow = true; } return; }
+        if (sel == null) return; Play("order"); if (type == "lock") { if (selIsl != null && selIsl.found) sim.GiveOrder(sel, "mine", selIsl.id); } else sim.GiveOrder(sel, type); }
 
     void HandleInput(float dt)
     {
-        if (Inject) { mouse = InjMouse; clickPressed = InjClick; InjClick = false; } else { mouse = Raylib.GetMousePosition(); clickPressed = Raylib.IsMouseButtonPressed(MouseButton.Left); }
+        if (Inject) { mouse = InjMouse; clickPressed = InjClick; InjClick = false; mouseDown = InjDown; mouseUp = InjUp; InjUp = false; } else { mouse = Raylib.GetMousePosition(); clickPressed = Raylib.IsMouseButtonPressed(MouseButton.Left); mouseDown = Raylib.IsMouseButtonDown(MouseButton.Left); mouseUp = Raylib.IsMouseButtonReleased(MouseButton.Left); }
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
             if (crawlActive) EndCrawl(); else if (showSheet) showSheet = false; else if (showMenu) showMenu = false;
@@ -84,8 +87,8 @@ public sealed unsafe partial class Game
         if (mode == Mode.Cmd)
         {
             if (clickPressed && !UiOver()) { dragging = true; dragMoved = 0; dragStart = mouse; }
-            if (dragging && Raylib.IsMouseButtonDown(MouseButton.Left)) { var d = Raylib.GetMouseDelta(); dragMoved += MathF.Abs(d.X) + MathF.Abs(d.Y); cam.az -= d.X * .006f; cam.el = Math.Clamp(cam.el + d.Y * .005f, .08f, 1.45f); }
-            if (dragging && Raylib.IsMouseButtonReleased(MouseButton.Left)) { dragging = false; if (dragMoved < 10) Tap(mouse); }
+            if (dragging && mouseDown) { var d = Raylib.GetMouseDelta(); dragMoved += MathF.Abs(d.X) + MathF.Abs(d.Y); cam.az -= d.X * .006f; cam.el = Math.Clamp(cam.el + d.Y * .005f, .08f, 1.45f); }
+            if (dragging && mouseUp) { dragging = false; if (dragMoved < 10) Tap(mouse); }
             if (Raylib.IsMouseButtonPressed(MouseButton.Right) && !UiOver() && sel != null)
             {
                 var ray = Raylib.GetScreenToWorldRay(mouse, cam3); foreach (var i in sim.G.isl) if (i.found && Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * 1.25f).Hit) { selIsl = i; Order("lock"); break; }
@@ -114,7 +117,8 @@ public sealed unsafe partial class Game
             if (Raylib.IsKeyDown(KeyboardKey.W) || Raylib.IsKeyDown(KeyboardKey.Up)) mz -= 1; if (Raylib.IsKeyDown(KeyboardKey.S) || Raylib.IsKeyDown(KeyboardKey.Down)) mz += 1;
             if (Raylib.IsKeyDown(KeyboardKey.A) || Raylib.IsKeyDown(KeyboardKey.Left)) mx -= 1; if (Raylib.IsKeyDown(KeyboardKey.D) || Raylib.IsKeyDown(KeyboardKey.Right)) mx += 1;
             walk.Step(sim, dt, mx, mz); FindNearby();
-            if (Raylib.IsKeyPressed(KeyboardKey.E) && nearShip != null) OpenCabin(nearShip); else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearNpc != null) sim.Chat(nearNpc);
+            if (Raylib.IsKeyPressed(KeyboardKey.E) && nearHelm && nearShip == null && nearNpc == null) UseHelm();
+            else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearShip != null) OpenCabin(nearShip); else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearNpc != null) sim.Chat(nearNpc);
             if (Raylib.IsKeyPressed(KeyboardKey.T) && nearNpc != null) sim.Chat(nearNpc);
             if (Raylib.IsKeyPressed(KeyboardKey.B)) SetMode(Mode.Cmd);
         }
@@ -126,9 +130,10 @@ public sealed unsafe partial class Game
     }
     public void Pan(float fy, float fxr, float k)
     {
-        cam.follow = null; float sn = MathF.Sin(cam.az), cs = MathF.Cos(cam.az);
+        cam.follow = null; execFollow = false; float sn = MathF.Sin(cam.az), cs = MathF.Cos(cam.az);
         cam.tx = Math.Clamp(cam.tx + (-sn * fy + cs * fxr) * k, 0, Data.W); cam.tz = Math.Clamp(cam.tz + (-cs * fy - sn * fxr) * k, 0, Data.W);
     }
+    void UseHelm() { selExec = true; execFollow = true; cam.follow = null; cam.dist = 1400; SetMode(Mode.Cmd); sim.Say("Helm: click empty space to set a course, or pick an island and press L.", 0x5adcff); }
     void EnterWalk() { walk.x = 0; walk.z = -22.5f; walk.yaw = 0; walk.pitch = 0; SetMode(Mode.Walk); }
 
     // ---------------- HUD ----------------
@@ -176,10 +181,17 @@ public sealed unsafe partial class Game
         var G = sim.G; float ph = 152 * s;
         Box(new Rectangle(0, H - ph, W, ph), new Color((byte)11, (byte)19, (byte)38, (byte)235));
         float cx = 10 * s, cy = H - ph + 8 * s, cw = 128 * s, chh = 56 * s;
+        {   // Executor chip
+            var r = new Rectangle(cx, cy, cw, chh); if (Btn(r, "", 12 * s, selExec)) { selExec = true; execFollow = true; cam.follow = null; cam.dist = Math.Max(cam.dist, 900); }
+            Raylib.DrawRectangleRec(new Rectangle(r.X, r.Y, 4 * s, r.Height), Color.White);
+            DText("Executor", r.X + 10 * s, r.Y + 3 * s, 14 * s, Txt); DText(G.exMoving ? $"sailing {(int)G.exSpeed} u/s" : "on station", r.X + 10 * s, r.Y + 20 * s, 11 * s, Dim);
+            void XBar(int k2, float f, Color c) { var b = new Rectangle(r.X + 10 * s, r.Y + 36 * s + k2 * 6 * s, cw - 18 * s, 4 * s); Raylib.DrawRectangleRec(b, new Color((byte)0, (byte)0, (byte)0, (byte)110)); Raylib.DrawRectangleRec(new Rectangle(b.X, b.Y, b.Width * Math.Clamp(f, 0, 1), b.Height), c); }
+            XBar(0, G.aeth / 600f, Rgb(0xa08cff)); XBar(1, G.exSpeed / Sim.ExMax, Accent); cx += cw + 6 * s;
+        }
         foreach (var sh in G.ships)
         {
-            var st = Sim.StatOf(sh); var r = new Rectangle(cx, cy, cw, chh); bool on = sh == sel;
-            if (Btn(r, "", 12 * s, on)) { sel = sh; cam.follow = sh; cam.dist = Math.Min(cam.dist, 700); selIsl = null; }
+            var st = Sim.StatOf(sh); var r = new Rectangle(cx, cy, cw, chh); bool on = sh == sel && !selExec;
+            if (Btn(r, "", 12 * s, on)) { sel = sh; selExec = false; cam.follow = sh; cam.dist = Math.Min(cam.dist, 700); selIsl = null; }
             Raylib.DrawRectangleRec(new Rectangle(r.X, r.Y, 4 * s, r.Height), Rgb(sh.color));
             DText(sh.name.Split(' ')[0], r.X + 10 * s, r.Y + 3 * s, 14 * s, Txt); DText(sh.indep ? "independent" : sh.state, r.X + 10 * s, r.Y + 20 * s, 11 * s, Dim);
             void Bar(int k, float f, Color c) { var b = new Rectangle(r.X + 10 * s, r.Y + 36 * s + k * 6 * s, cw - 18 * s, 4 * s); Raylib.DrawRectangleRec(b, new Color((byte)0, (byte)0, (byte)0, (byte)110)); Raylib.DrawRectangleRec(new Rectangle(b.X, b.Y, b.Width * Math.Clamp(f, 0, 1), b.Height), c); }
@@ -187,18 +199,20 @@ public sealed unsafe partial class Game
             cx += cw + 6 * s;
         }
         string inf = "";
-        if (sel != null) { var st = Sim.StatOf(sel); inf = $"{sel.name} \"{Data.Crew[sel.idx].Call}\"  fuel {(int)sel.fuel}/{st.fuel}  hull {(int)sel.hull}/{st.hull}  cargo {(int)sel.cargo}/{st.cargo}  order: {(sel.order != null ? sel.order.type + (sel.order.isl >= 0 ? " " + G.isl[sel.order.isl].name : "") : "none")}{(sel.indep ? "  (INDEPENDENT)" : "")}"; }
+        if (selExec) { float deg = (((-G.exHead * 180 / MathF.PI) % 360) + 360) % 360; inf = $"The Executor  speed {(int)G.exSpeed}/{(int)Sim.ExMax}  heading {(int)deg} deg  stores {(int)G.aeth} (reserve {(int)Sim.ExReserve})  course: " + (G.exMoving ? $"({(int)G.exDestX}, {(int)G.exDestY})" : "none - click empty space to set one"); }
+        else if (sel != null) { var st = Sim.StatOf(sel); inf = $"{sel.name} \"{Data.Crew[sel.idx].Call}\"  fuel {(int)sel.fuel}/{st.fuel}  hull {(int)sel.hull}/{st.hull}  cargo {(int)sel.cargo}/{st.cargo}  order: {(sel.order != null ? sel.order.type + (sel.order.isl >= 0 ? " " + G.isl[sel.order.isl].name : "") : "none")}{(sel.indep ? "  (INDEPENDENT)" : "")}"; }
         if (selIsl != null) inf += (inf.Length > 0 ? "     |     " : "") + $"{selIsl.name}: " + (selIsl.found ? $"{(int)selIsl.aeth} Aetherite" : "unknown signal");
         DText(inf, 12 * s, H - ph + 70 * s, 14 * s, Txt);
         float by = H - ph + 100 * s, bh = 40 * s; var names = new List<(string, string)>();
-        if (selIsl != null && selIsl.found) names.Add(("LOCK ON [L]", "lock")); names.AddRange(new[] { ("RETURN [R]", "return"), ("HOLD [H]", "hold"), ("SCOUT [C]", "scout"), ("AUTO [G]", "auto"), ("CABIN [V]", "cabin"), ("UPGRADE [U]", "up") });
+        if (selExec) { if (selIsl != null && selIsl.found) names.Add(("SAIL TO ISLAND [L]", "lock")); names.AddRange(new[] { ("HALT [H]", "hold"), ("UPGRADE [U]", "up") }); }
+        else { if (selIsl != null && selIsl.found) names.Add(("LOCK ON [L]", "lock")); names.AddRange(new[] { ("RETURN [R]", "return"), ("HOLD [H]", "hold"), ("SCOUT [C]", "scout"), ("AUTO [G]", "auto"), ("CABIN [V]", "cabin"), ("UPGRADE [U]", "up") }); }
         float bw = Math.Min(130 * s, (W - 20 * s - 6 * s * names.Count) / names.Count), bx = 10 * s;
         foreach (var (label, key) in names) { if (Btn(new Rectangle(bx, by, bw, bh), label, 13 * s, key == "lock")) { if (key == "up") showSheet = true; else if (key == "cabin") { if (sel != null) OpenCabin(sel); } else Order(key); } bx += bw + 6 * s; }
         // radar
         float rs = 130 * s, rx = W - rs - 8 * s, ry = 52 * s; var rr = new Rectangle(rx, ry, rs, rs); Box(rr, new Color((byte)11, (byte)19, (byte)38, (byte)205)); float k = rs / Data.W;
-        if (clickPressed && curLayer >= TopLayer && Over(rr)) { cam.follow = null; cam.tx = Math.Clamp((mouse.X - rx) / k, 0, Data.W); cam.tz = Math.Clamp((mouse.Y - ry) / k, 0, Data.W); cam.ty = 0; }
+        if (clickPressed && curLayer >= TopLayer && Over(rr)) { cam.follow = null; execFollow = false; cam.tx = Math.Clamp((mouse.X - rx) / k, 0, Data.W); cam.tz = Math.Clamp((mouse.Y - ry) / k, 0, Data.W); cam.ty = 0; }
         foreach (var i in G.isl) if (i.found) Raylib.DrawRectangleRec(new Rectangle(rx + i.x * k - 3, ry + i.y * k - 3, 6, 6), i == selIsl ? Accent : Rgb(0x58c26a));
-        Raylib.DrawRectangleRec(new Rectangle(rx + Data.EXx * k - 4, ry + Data.EXy * k - 4, 8, 8), Color.White);
+        Raylib.DrawRectangleRec(new Rectangle(rx + sim.G.exx * k - 4, ry + sim.G.exy * k - 4, 8, 8), Color.White);
         foreach (var q in G.storms) { Raylib.DrawCircleV(new Vector2(rx + q.x * k, ry + q.y * k), q.r * k, new Color((byte)130, (byte)90, (byte)255, (byte)70)); Raylib.DrawCircleLinesV(new Vector2(rx + q.x * k, ry + q.y * k), q.r * k, new Color((byte)160, (byte)120, (byte)255, (byte)220)); }
         foreach (var sh in G.ships) Raylib.DrawRectangleRec(new Rectangle(rx + sh.x * k - 3, ry + sh.y * k - 3, 6, 6), Rgb(sh.color));
         Raylib.DrawRectangleLinesEx(new Rectangle(rx + cam.tx * k - 10, ry + cam.tz * k - 10, 20, 20), 1, new Color((byte)255, (byte)255, (byte)255, (byte)140));
@@ -225,10 +239,11 @@ public sealed unsafe partial class Game
     }
     void DrawWalkHud(float W, float H, float s)
     {
+        { var Gx = sim.G; float deg = (((-Gx.exHead * 180 / MathF.PI) % 360) + 360) % 360; DTextC($"Executor: {(Gx.exMoving ? "sailing" : "on station")}  {(int)Gx.exSpeed} u/s  heading {(int)deg}  stores {(int)Gx.aeth}", W / 2, 74 * s, 13 * s, Dim); }
         DTextC(walk.Where().ToUpper(), W / 2, 52 * s, 14 * s, Accent);
         Raylib.DrawCircleLinesV(new Vector2(W / 2, H / 2), 3, new Color((byte)200, (byte)230, (byte)255, (byte)150));
         float y = H - 30 * s; var hints = new List<string>();
-        if (nearNpc != null) hints.Add($"[T] Talk to {nearNpc.name.Split(' ')[0]}"); if (nearShip != null) hints.Add($"[E] Enter {Data.Crew[nearShip.idx].Call}"); hints.Add("[B] Command view     WASD move, mouse look");
+        if (nearHelm) hints.Add("[E] Helm: plot a course"); if (nearNpc != null) hints.Add($"[T] Talk to {nearNpc.name.Split(' ')[0]}"); if (nearShip != null) hints.Add($"[E] Enter {Data.Crew[nearShip.idx].Call}"); hints.Add("[B] Command view     WASD move, mouse look");
         foreach (var h in hints.AsEnumerable().Reverse()) { DTextC(h, W / 2, y, 16 * s, h.StartsWith("[B]") ? Dim : Accent); y -= 24 * s; }
     }
     void DrawSheet(float W, float H, float s)

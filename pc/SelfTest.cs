@@ -53,6 +53,25 @@ public static class SelfTest
         var leg = new Sim(); leg.Deserialize(lj); for (int i = 0; i < 100; i++) leg.Step(.5f);
         Ok("legacy save does not replay finale", !leg.BeatLog.Contains("finale") && leg.EpilogueIn < 0 && !leg.CrawlRequested);
 
+        // ---- Executor navigation ----
+        var nav = new Sim { Rng = new Random(11) }; nav.NewGame(99); foreach (var s in nav.G.ships) nav.GiveOrder(s, "hold"); nav.G.aeth = 200; float ax = nav.G.exx, ay = nav.G.exy, a0 = nav.G.aeth;
+        Ok("SailTo accepts a course with stores above reserve", nav.SailTo(ax + 600, ay - 400));
+        for (int i = 0; i < 4000 && nav.G.exMoving; i++) nav.Step(.1f);
+        for (int i = 0; i < 80; i++) nav.Step(.1f); // coast to a stop
+        float dist = Mx.Hypot(nav.G.exx - (ax + 600), nav.G.exy - (ay - 400));
+        Ok("Executor arrives at its destination and stops", !nav.G.exMoving && dist < 40 && nav.G.exSpeed < 1, "dist=" + dist + " speed=" + nav.G.exSpeed);
+        Ok("heading turned toward the course", MathF.Abs(nav.G.exHead) > .3f, "head=" + nav.G.exHead);
+        Ok("sailing burned some Aetherite but not all", nav.G.aeth < a0 - 1 && nav.G.aeth > Sim.ExReserve, "aeth=" + nav.G.aeth);
+        var docked0 = nav.ExPt(0, 190); Ok("docked ships ride along with the Executor", nav.G.ships.Where(s => s.state == "docked").All(s => MathF.Abs(s.x - docked0.x) < .5f && MathF.Abs(s.y - docked0.y) < .5f) && nav.G.ships.Any(s => s.state == "docked"));
+        var low = new Sim { Rng = new Random(2) }; low.NewGame(5); low.G.ships.Clear(); low.G.aeth = 34; Ok("sailing refused when stores are at the reserve", !low.SailTo(1000, 1000) && !low.G.exMoving);
+        low.G.aeth = 40; low.SailTo(400, 400); for (int i = 0; i < 6000 && low.G.exMoving; i++) low.Step(.1f);
+        Ok("Executor halts itself above the reserve, never strands stores", !low.G.exMoving && low.G.aeth >= Sim.ExReserve - .5f, "aeth=" + low.G.aeth);
+        // pilots keep working while the Executor sails: launch, mine, return, land on the moving hangar
+        var mv = new Sim { Rng = new Random(21) }; mv.NewGame(321); foreach (var s in mv.G.ships) mv.GiveOrder(s, "auto"); mv.G.aeth = 300;
+        for (int k = 0; k < 6000; k++) { mv.Step(.1f); if (k % 400 == 0 && !mv.G.exMoving && mv.G.aeth > 120) mv.SailTo(mv.G.exx + (k % 800 == 0 ? 500 : -500), mv.G.exy + (k % 1200 == 0 ? 300 : -300)); if (k % 1500 == 0) foreach (var s in mv.G.ships) mv.GiveOrder(s, "auto"); }
+        Ok("pilots keep delivering while the Executor sails", mv.G.delivered > 60 && mv.G.ships.All(s => !float.IsNaN(s.x)), "delivered=" + mv.G.delivered);
+        Ok("no pilot stranded airborne after the voyage", mv.G.ships.All(s => s.state != "out" || Mx.Hypot(s.x - mv.G.exx, s.y - mv.G.exy) < 2500));
+
         // soak at dt=0.6 for 90 game minutes
         var soak = new Sim { Rng = new Random(99) }; soak.NewGame(777);
         foreach (var s in soak.G.ships) soak.GiveOrder(s, "auto");

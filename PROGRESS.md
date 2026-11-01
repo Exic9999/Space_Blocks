@@ -32,7 +32,7 @@ User request: (1) whole Executor explorable in first person incl. hangar resourc
 - Save: new fields default safely (old saves still load).
 
 ## Milestones (tick when done, commit each)
-[ ] M1 Executor motion (sim + render + helm UI + selftest)
+[x] M1 Executor motion (sim + render + helm UI + selftest) — DONE: Sim.ExStep/SailTo/SailToIsland/Halt, ExPt/ToLocal helpers, Executor chip + click-to-set-course + SAIL TO ISLAND + HALT, helm prompt (E at chair), course marker; selftest 29, uitest 35
 [ ] M2 Hangar stations + NPC service workflow (sim + render + tests)
 [ ] M3 New interior rooms (quarters, engineering) + collision
 [ ] M4 Captain ship sim + Fly mode + autopilot/dock

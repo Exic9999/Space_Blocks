@@ -18,8 +18,7 @@ public sealed class Chapter
 public static class Data
 {
     public const float W = 3200f;
-    public const float EXx = 1600f, EXy = 1600f;
-    public const float MOUTH = EXy + 330f;
+    public const float CX = 1600f, CY = 1600f; // world centre (island ring + Executor start)
     public const float ES = 6f; // exterior ship scale
 
     public static readonly CrewDef[] Crew =

@@ -43,6 +43,8 @@ public sealed class GameState
     public int found = 3, storyV = 1;
     public List<Storm> storms = new();
     public float nextStorm = 50; public int stormsSeen, launches, indepEver;
+    // Executor navigation: position, heading (nose = local -z = world (-sin h, -cos h)), speed, course
+    public float exx = Data.CX, exy = Data.CY, exHead, exSpeed, exDestX, exDestY; public bool exMoving;
 }
 
 public sealed class LogLine { public string msg = ""; public uint color; public float t = 6; }
@@ -87,14 +89,14 @@ public sealed class Sim
             do
             {
                 float a = Rnd() * 6.283f, r = 450 + Rnd() * 1150;
-                x = Data.EXx + MathF.Cos(a) * r; y = Data.EXy + MathF.Sin(a) * r;
+                x = Data.CX + MathF.Cos(a) * r; y = Data.CY + MathF.Sin(a) * r;
                 ok = isl.All(o => Mx.Hypot(o.x - x, o.y - y) > 300); t++;
             } while (!ok && t < 60);
             float s = 70 + Rnd() * 55;
             var o2 = new Island { id = i, name = Data.IslandNames[i], x = x, y = y, h = -90 + Rnd() * 200, s = s, aeth = 120 + Rnd() * 260, seed = (int)MathF.Floor(Rnd() * 1e6f) };
             o2.max = o2.aeth; isl.Add(o2);
         }
-        isl = isl.OrderBy(o => Mx.Hypot(o.x - Data.EXx, o.y - Data.EXy)).ToList();
+        isl = isl.OrderBy(o => Mx.Hypot(o.x - Data.CX, o.y - Data.CY)).ToList();
         for (int i = 0; i < isl.Count; i++) isl[i].id = i;
         for (int i = 0; i < 3; i++) isl[i].found = true;
         G = new GameState { isl = isl };
@@ -106,8 +108,13 @@ public sealed class Sim
     public void AddShip(int i)
     {
         var c = Data.Crew[i]; var p = Data.Pads[i];
-        G.ships.Add(new Ship { idx = i, name = c.Name, color = c.Color, x = Data.EXx + p[0] * .1f, y = Data.EXy + 190, px = p[0], pz = p[1] - 4 });
+        G.ships.Add(new Ship { idx = i, name = c.Name, color = c.Color, x = ExPt(p[0] * .1f, 190).x, y = ExPt(p[0] * .1f, 190).y, px = p[0], pz = p[1] - 4 });
     }
+
+    // Executor-local (hull) coordinates -> world, honouring heading. lx = starboard, lz = stern (+z is the hangar mouth).
+    public Pt ExPt(float lx, float lz) { float c = MathF.Cos(G.exHead), s = MathF.Sin(G.exHead); return new Pt(G.exx + lx * c + lz * s, G.exy - lx * s + lz * c); }
+    // World offset -> Executor-local x,z.
+    public (float x, float z) ToLocal(float dx, float dz) { float c = MathF.Cos(G.exHead), s = MathF.Sin(G.exHead); return (dx * c - dz * s, dx * s + dz * c); }
 
     // ---------------- planning ----------------
     Island? Best(Ship s, Stat st)
@@ -116,7 +123,7 @@ public sealed class Sim
         foreach (var i in G.isl)
         {
             if (!i.found || i.aeth < 20) continue;
-            float d = Mx.Hypot(i.x - Data.EXx, i.y - Data.EXy);
+            float d = Mx.Hypot(i.x - G.exx, i.y - G.exy);
             if (d * 2 * .0085f > st.fuel * .85f) continue;
             if (G.storms.Any(q => Mx.Hypot(q.x - i.x, q.y - i.y) < q.r + 150)) continue;
             int crowd = G.ships.Count(o => o != s && o.target == i.id);
@@ -134,7 +141,7 @@ public sealed class Sim
         if (!s.indep && o!.type == "mine")
         {
             var i = G.isl[o.isl];
-            if (i.found && i.aeth >= 15 && Mx.Hypot(i.x - Data.EXx, i.y - Data.EXy) * 2 * .0085f <= st.fuel * .9f) return new Plan { isl = i };
+            if (i.found && i.aeth >= 15 && Mx.Hypot(i.x - G.exx, i.y - G.exy) * 2 * .0085f <= st.fuel * .9f) return new Plan { isl = i };
             Say(i.name + " is spent for " + s.name + ". Switching to auto.", C_WARN); s.order = new Order { type = "auto" };
         }
         if (s.trips > 0 && s.trips % 3 == 0 && s.lastScout != s.trips && G.isl.Any(i => !i.found)) { s.lastScout = s.trips; return new Plan { scout = true }; }
@@ -147,18 +154,18 @@ public sealed class Sim
         List<Pt> wp;
         if (p.isl != null)
         {
-            s.target = p.isl.id; wp = new() { new(Data.EXx, Data.EXy + 400), new(p.isl.x, p.isl.y) }; s.scout = false;
+            s.target = p.isl.id; wp = new() { ExPt(0, 400), new(p.isl.x, p.isl.y) }; s.scout = false;
             Say(s.name + " locked onto " + p.isl.name + " and launched.", C_CYAN);
         }
         else
         {
             s.target = -1; float a = Rf() * 6.283f, r = 900 + Rf() * 1100;
-            wp = new() { new(Data.EXx, Data.EXy + 400), new(Math.Clamp(Data.EXx + MathF.Cos(a) * r, 150, Data.W - 150), Math.Clamp(Data.EXy + MathF.Sin(a) * r, 150, Data.W - 150)) };
+            wp = new() { ExPt(0, 400), new(Math.Clamp(G.exx + MathF.Cos(a) * r, 150, Data.W - 150), Math.Clamp(G.exy + MathF.Sin(a) * r, 150, Data.W - 150)) };
             s.scout = true; Say(s.name + " launched on a scouting run.");
         }
         s.nextState = "out"; G.launches++; s.pendWp = wp; s.state = "takeoff"; s.lt = 0; s.ph = "aboard"; Chat(s);
     }
-    void GoHome(Ship s) { s.state = "in"; s.target = -1; s.scout = false; s.wp = new() { new(Data.EXx, Data.EXy + 400), new(Data.EXx, Data.MOUTH) }; }
+    void GoHome(Ship s) { s.state = "in"; s.target = -1; s.scout = false; s.wp = new() { ExPt(0, 400), ExPt(0, 330) }; }
 
     public bool GiveOrder(Ship s, string type, int isl = -1)
     {
@@ -193,10 +200,52 @@ public sealed class Sim
         return s.path.Count == 0;
     }
 
+    // ---------------- Executor navigation ----------------
+    public const float ExMax = 45, ExTurn = .35f, ExBurn = .003f, ExReserve = 30f;
+    public bool SailTo(float x, float y)
+    {
+        if (G.aeth < ExReserve + 5) { Say("Not enough Aetherite in stores to sail (reserve " + (int)ExReserve + ").", C_WARN); return false; }
+        G.exDestX = Math.Clamp(x, 250, Data.W - 250); G.exDestY = Math.Clamp(y, 250, Data.W - 250); G.exMoving = true;
+        Say("Executor setting course.", C_CYAN); return true;
+    }
+    public bool SailToIsland(Island i)
+    {
+        float dx = G.exx - i.x, dy = G.exy - i.y, d = Mx.Hypot(dx, dy); if (d < 1) { dx = 1; d = 1; }
+        return SailTo(i.x + dx / d * 380, i.y + dy / d * 380);
+    }
+    public void Halt() { if (G.exMoving) Say("Executor holding position.", C_CYAN); G.exMoving = false; }
+    void ExStep(float dt)
+    {
+        float target = 0;
+        if (G.exMoving)
+        {
+            float dx = G.exDestX - G.exx, dy = G.exDestY - G.exy, d = Mx.Hypot(dx, dy);
+            if (d < 15) { G.exMoving = false; Say("Executor on station.", C_CYAN); }
+            else
+            {
+                float want = MathF.Atan2(-dx, -dy), diff = (((want - G.exHead + MathF.PI) % MathF.Tau) + MathF.Tau) % MathF.Tau - MathF.PI;
+                G.exHead += Math.Clamp(diff, -ExTurn * dt, ExTurn * dt);
+                target = MathF.Abs(diff) < .5f ? MathF.Min(ExMax, MathF.Max(8, d * .35f)) : 0;
+            }
+        }
+        G.exSpeed += Math.Clamp(target - G.exSpeed, -25 * dt, 15 * dt);
+        if (G.exSpeed > .01f)
+        {
+            float burn = G.exSpeed * dt * ExBurn;
+            if (G.aeth - burn < ExReserve) { G.exMoving = false; G.exSpeed = 0; Say("Executor halted: stores too low to keep sailing.", C_WARN); }
+            else
+            {
+                G.aeth -= burn; G.exx = Math.Clamp(G.exx - MathF.Sin(G.exHead) * G.exSpeed * dt, 250, Data.W - 250); G.exy = Math.Clamp(G.exy - MathF.Cos(G.exHead) * G.exSpeed * dt, 250, Data.W - 250);
+            }
+        }
+        else G.exSpeed = 0;
+    }
+
     // ---------------- main step ----------------
     public void Step(float dt)
     {
         G.t += dt;
+        ExStep(dt);
         float sens = 300 + 130 * G.upSensors;
         foreach (var s in G.ships)
         {
@@ -209,6 +258,7 @@ public sealed class Sim
             }
             if (s.state == "docked")
             {
+                { var hp = ExPt(0, 190); s.x = hp.x; s.y = hp.y; }
                 s.docked += dt;
                 if (s.fuel < st.fuel) { float need = MathF.Min(st.fuel - s.fuel, dt * 6), cost = need * .4f; if (G.aeth >= cost) { G.aeth -= cost; s.fuel += need; } }
                 if (s.cargo > 0) { float d = MathF.Min(s.cargo, dt * 10); s.cargo -= d; float share = s.indep ? .6f : 1; G.aeth += d * share; G.delivered += d * share; if (s.cargo <= .01f) { s.cargo = 0; s.trips++; } }
@@ -224,7 +274,7 @@ public sealed class Sim
                 s.lt += dt / 6;
                 if (s.lt >= 1)
                 {
-                    s.state = "docked"; s.docked = 0; s.x = Data.EXx; s.y = Data.EXy + 190; s.ph = s.indep ? "aboard" : "exit";
+                    s.state = "docked"; s.docked = 0; { var hp = ExPt(0, 190); s.x = hp.x; s.y = hp.y; } s.ph = s.indep ? "aboard" : "exit";
                     var p = Data.Pads[s.idx % 5]; s.px = p[0] <= 0 ? p[0] - 3.7f : p[0] + 3.7f; s.pz = p[1];
                     s.path = PathFor(s, true).ToList(); if (s.ph == "aboard") s.path.Clear();
                 }
@@ -232,10 +282,11 @@ public sealed class Sim
             else if (s.state == "takeoff")
             {
                 s.lt += dt / 5;
-                if (s.lt >= 1) { s.state = string.IsNullOrEmpty(s.nextState) ? "out" : s.nextState; s.x = Data.EXx; s.y = Data.MOUTH; s.wp = s.pendWp; s.ang = MathF.PI / 2; s.lt = 0; }
+                if (s.lt >= 1) { s.state = string.IsNullOrEmpty(s.nextState) ? "out" : s.nextState; { var mp = ExPt(0, 330); s.x = mp.x; s.y = mp.y; } s.wp = s.pendWp; s.ang = MathF.Atan2(MathF.Cos(G.exHead), MathF.Sin(G.exHead)); s.lt = 0; }
             }
             else
             {
+                if (s.state == "in") { if (s.wp.Count >= 2) { s.wp[0] = ExPt(0, 400); s.wp[1] = ExPt(0, 330); } else if (s.wp.Count == 1) s.wp[0] = ExPt(0, 330); }
                 var w = s.wp.Count > 0 ? s.wp[0] : null;
                 if (w != null)
                 {
@@ -250,7 +301,7 @@ public sealed class Sim
                     var i = G.isl[s.target]; float g = MathF.Min(st.mine * dt, MathF.Min(i.aeth, st.cargo - s.cargo));
                     i.aeth -= g; s.cargo += g; if (s.cargo >= st.cargo - .01f || i.aeth <= .5f) GoHome(s);
                 }
-                if (s.state == "out" || s.state == "mining") { float home = Mx.Hypot(s.x - Data.EXx, s.y - Data.EXy) * .0085f * 1.3f; if (s.fuel < home + 2) GoHome(s); }
+                if (s.state == "out" || s.state == "mining") { float home = Mx.Hypot(s.x - G.exx, s.y - G.exy) * .0085f * 1.3f; if (s.fuel < home + 2) GoHome(s); }
                 s.inStorm = false;
                 foreach (var q in G.storms)
                     if (Mx.Hypot(q.x - s.x, q.y - s.y) < q.r * .9f && q.age > 5)
@@ -269,8 +320,8 @@ public sealed class Sim
         if (G.nextStorm <= 0 && G.storms.Count < 2)
         {
             G.nextStorm = 70 + Rf() * 60;
-            float a2 = Rf() * 6.283f, d = 1500 + Rf() * 700, tx = Data.EXx + (Rf() - .5f) * 1200, ty = Data.EXy + (Rf() - .5f) * 1200;
-            float sx = Data.EXx + MathF.Cos(a2) * d, sy = Data.EXy + MathF.Sin(a2) * d, dl = Mx.Hypot(tx - sx, ty - sy), sp = 22 + Rf() * 14;
+            float a2 = Rf() * 6.283f, d = 1500 + Rf() * 700, tx = G.exx + (Rf() - .5f) * 1200, ty = G.exy + (Rf() - .5f) * 1200;
+            float sx = G.exx + MathF.Cos(a2) * d, sy = G.exy + MathF.Sin(a2) * d, dl = Mx.Hypot(tx - sx, ty - sy), sp = 22 + Rf() * 14;
             G.storms.Add(new Storm { x = sx, y = sy, r = 230 + Rf() * 130, vx = (tx - sx) / dl * sp, vy = (ty - sy) / dl * sp, age = 0, life = 130 });
             G.stormsSeen++; Say("Ion storm forming in the Reach. Keep ships clear.", C_PURP);
         }
@@ -289,7 +340,7 @@ public sealed class Sim
     }
     void Arrive(Ship s)
     {
-        if (s.state == "in") { s.state = "landing"; s.lt = 0; s.ang = -MathF.PI / 2; return; }
+        if (s.state == "in") { s.state = "landing"; s.lt = 0; s.ang = MathF.Atan2(-MathF.Cos(G.exHead), -MathF.Sin(G.exHead)); return; }
         if (s.state == "out")
         {
             if (s.scout) { s.scout = false; GoHome(s); return; }
@@ -300,7 +351,7 @@ public sealed class Sim
     public void DoScan()
     {
         float r = 700 + 260 * G.upSensors; int n = 0;
-        foreach (var i in G.isl) if (!i.found && Mx.Hypot(i.x - Data.EXx, i.y - Data.EXy) < r) { Discover(i, null); n++; }
+        foreach (var i in G.isl) if (!i.found && Mx.Hypot(i.x - G.exx, i.y - G.exy) < r) { Discover(i, null); n++; }
         if (n == 0) Say("Scan complete. Nothing new in range."); ScanFx = 1.4f;
     }
 

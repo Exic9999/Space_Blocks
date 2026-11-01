@@ -5,7 +5,7 @@ namespace SpaceBlocks;
 
 public enum Mode { Title, Cmd, Walk, Cabin }
 
-public sealed class CamState { public float az = .6f, el = .5f, dist = 1500, tx = Data.EXx, ty = 0, tz = Data.EXy; public Ship? follow; }
+public sealed class CamState { public float az = .6f, el = .5f, dist = 1500, tx = Data.CX, ty = 0, tz = Data.CY; public Ship? follow; }
 public sealed class IslandVis { public IslandGfx? Gfx; public float shown; }
 public sealed class ShipVis { public ShipGfx? Gfx; public string Sig = ""; public Matrix4x4 Ext, Int; public bool ExtVis, IntVis; public Vector3 ExtPos; }
 
@@ -14,7 +14,7 @@ public sealed unsafe partial class Game
     // ---- core state ----
     public readonly Sim sim = new();
     Mode mode = Mode.Title;
-    Ship? sel; Island? selIsl;
+    Ship? sel; Island? selIsl; bool selExec, execFollow;
     readonly CamState cam = new();
     readonly Walker walk = new();
     float T; // wall time
@@ -81,7 +81,7 @@ public sealed unsafe partial class Game
         foreach (var o in shipVis) if (o?.Gfx != null) Raylib.UnloadMesh(o.Gfx.Mesh);
         for (int i = 0; i < islVis.Length; i++) islVis[i] = new IslandVis();
         for (int i = 0; i < shipVis.Length; i++) shipVis[i] = new ShipVis();
-        cam.follow = null; cam.tx = Data.EXx; cam.tz = Data.EXy; cam.ty = 0; cam.dist = 1500; cam.az = .6f; cam.el = .5f;
+        cam.follow = null; cam.tx = sim.G.exx; cam.tz = sim.G.exy; cam.ty = 0; cam.dist = 1500; cam.az = .6f; cam.el = .5f;
     }
     void SetMode(Mode m)
     {
@@ -144,6 +144,8 @@ public sealed unsafe partial class Game
             if (v.Gfx == null || v.Sig != sig) { if (v.Gfx != null) Raylib.UnloadMesh(v.Gfx.Mesh); v.Gfx = Scene.BuildShip(s.idx, s.lv); v.Sig = sig; }
         }
     }
+    Vector3 ExW(float lx, float ly, float lz) { var p = sim.ExPt(lx, lz); return new Vector3(p.x, ly, p.y); }
+    Matrix4x4 ExM => Matrix4x4.CreateRotationY(sim.G.exHead) * Matrix4x4.CreateTranslation(sim.G.exx, 0, sim.G.exy);
     static float YawFor(float a) => MathF.Atan2(-MathF.Cos(a), -MathF.Sin(a));
     static float LerpAng(float a, float b, float t) { float d = (((b - a + MathF.PI) % MathF.Tau) + MathF.Tau) % MathF.Tau - MathF.PI; return a + d * t; }
     static float Sm(float x) => x * x * (3 - 2 * x);
@@ -155,7 +157,7 @@ public sealed unsafe partial class Game
             var v = shipVis[s.idx]; var pad = Data.Pads[s.idx % 5];
             float da = 60; var ti = s.target >= 0 ? sim.G.isl[s.target] : null;
             if (s.state == "mining" && ti != null) da = ti.h + ti.s * .6f + 25; else if (s.state == "out" && ti != null) da = ti.h + ti.s * .6f + 60;
-            else if (s.state == "in") { float d = Mx.Hypot(s.x - Data.EXx, s.y - Data.EXy); da = d < 500 ? 20 : 60; } else if (s.state is "landing" or "takeoff" or "docked") da = 20;
+            else if (s.state == "in") { float d = Mx.Hypot(s.x - sim.G.exx, s.y - sim.G.exy); da = d < 500 ? 20 : 60; } else if (s.state is "landing" or "takeoff" or "docked") da = 20;
             s.alt += (da - s.alt) * MathF.Min(1, dt * 1.2f);
             bool ev = true, iv = false; float? yaw = null; float roll = 0;
             Vector3 ep = default, ip = default; float irx = 0, iry = 0;
@@ -163,7 +165,7 @@ public sealed unsafe partial class Game
             else if (s.state == "landing")
             {
                 float u = s.lt;
-                if (u < .4f) { float k = u / .4f; ep = new(Data.EXx, 20, Data.MOUTH + (Data.EXy + 200 - Data.MOUTH) * k); yaw = YawFor(-MathF.PI / 2); } else ev = false;
+                if (u < .4f) { float k = u / .4f; ep = ExW(0, 20, 330 + (200 - 330) * k); yaw = sim.G.exHead; } else ev = false;
                 if (u >= .3f)
                 {
                     iv = true; float k = Sm((u - .3f) / .7f), kz = MathF.Min(1, k * 1.6f), ky = MathF.Max(0, (k - .45f) / .55f);
@@ -178,7 +180,7 @@ public sealed unsafe partial class Game
                     iv = true; float k = Sm(u / .7f), kl = MathF.Min(1, k * 1.5f), kz = MathF.Max(0, (k - .35f) / .65f);
                     ip = new(pad[0] * (1 - Sm(MathF.Min(1, kz * 1.2f))), .95f + 6.5f * Sm(kl), pad[1] + (36 - pad[1]) * kz); iry = MathF.PI * Sm(MathF.Min(1, kl * 1.4f));
                 }
-                if (u >= .6f) { float k = (u - .6f) / .4f; ep = new(Data.EXx, 20, Data.EXy + 200 + (Data.MOUTH - Data.EXy - 200) * k); yaw = YawFor(MathF.PI / 2); } else ev = false;
+                if (u >= .6f) { float k = (u - .6f) / .4f; ep = ExW(0, 20, 200 + (330 - 200) * k); yaw = sim.G.exHead + MathF.PI; } else ev = false;
             }
             else
             {
@@ -197,9 +199,10 @@ public sealed unsafe partial class Game
     void UpdateCam(float dt)
     {
         if (mode == Mode.Walk || mode == Mode.Cabin) return;
+        if (execFollow && cam.follow == null) { float k0 = MathF.Min(1, dt * 3); cam.tx += (sim.G.exx - cam.tx) * k0; cam.ty += (0 - cam.ty) * k0; cam.tz += (sim.G.exy - cam.tz) * k0; }
         if (cam.follow != null)
         {
-            var v = shipVis[cam.follow.idx]; Vector3 p = cam.follow.state == "docked" || v == null ? new(Data.EXx, 20, Data.EXy + 190) : v.ExtPos;
+            var v = shipVis[cam.follow.idx]; Vector3 p = cam.follow.state == "docked" || v == null ? ExW(0, 20, 190) : v.ExtPos;
             float k = MathF.Min(1, dt * 3); cam.tx += (p.X - cam.tx) * k; cam.ty += (p.Y - cam.ty) * k; cam.tz += (p.Z - cam.tz) * k;
         }
         float ce = MathF.Cos(cam.el);
@@ -235,15 +238,15 @@ public sealed unsafe partial class Game
             lit.Draw(v.Gfx.Crystal, Matrix4x4.CreateScale(cs) * Matrix4x4.CreateTranslation(i.x - R * .25f * sc, i.h + bob + v.Gfx.Top * sc, i.y - R * .1f * sc), (.6f + .9f * f) * p);
         }
         // executor
-        var exM = Matrix4x4.CreateTranslation(Data.EXx, 0, Data.EXy);
+        var exM = ExM;
         lit.Draw(execHull, exM); float fill = MathF.Min(1, G.aeth / 600f);
         lit.Draw(execTanks, exM, .25f + 1.1f * fill);
         // ships
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.ExtVis) lit.Draw(v.Gfx.Mesh, v.Ext); }
         // ---- additive / transparent effects ----
         Rlgl.DisableDepthMask(); Raylib.BeginBlendMode(BlendMode.Additive);
-        foreach (var g in execGlows) Billboard(cam3, new Vector3(Data.EXx + g.Pos.X, g.Pos.Y, Data.EXy + g.Pos.Z), g.Size * (g.Size > 50 && g.Op > .9f ? .92f + .08f * MathF.Sin(t * 9 + g.Pos.X) : 1), Tint(g.Col, g.Op));
-        var ff = new Vector3(Data.EXx, 19, Data.EXy + 239); DrawQuadAdd(ff, 110, 32, 0, Tint(Col.Hex(0x40a8ff), .2f + .1f * MathF.Sin(t * 3)));
+        foreach (var g in execGlows) Billboard(cam3, Vector3.Transform(g.Pos, exM), g.Size * (g.Size > 50 && g.Op > .9f ? .92f + .08f * MathF.Sin(t * 9 + g.Pos.X) : 1), Tint(g.Col, g.Op));
+        var ff = ExW(0, 19, 239); DrawQuadAdd(ff, 110, 32, sim.G.exHead, Tint(Col.Hex(0x40a8ff), .2f + .1f * MathF.Sin(t * 3)));
         foreach (var i in G.isl)
         {
             var v = islVis[i.id]; float bob = MathF.Sin(t * .5f + i.seed) * 4;
@@ -267,7 +270,7 @@ public sealed unsafe partial class Game
                 Billboard(cam3, b, 36 + MathF.Sin(t * 30) * 10, Tint(Col.Hex(0xff8aa0), .9f));
             }
         }
-        if (sim.ScanFx > 0) { float k = 1 - sim.ScanFx / 1.4f; DrawRingAdd(new Vector3(Data.EXx, 30, Data.EXy), (700 + 260 * G.upSensors) * k, Tint(Col.Hex(0x5adcff), .5f * (1 - k))); }
+        if (sim.ScanFx > 0) { float k = 1 - sim.ScanFx / 1.4f; DrawRingAdd(new Vector3(sim.G.exx, 30, sim.G.exy), (700 + 260 * G.upSensors) * k, Tint(Col.Hex(0x5adcff), .5f * (1 - k))); }
         Raylib.EndBlendMode(); Rlgl.EnableDepthMask();
         DrawStorms(t);
         DrawSelection(t);
@@ -282,12 +285,13 @@ public sealed unsafe partial class Game
     }
     void DrawQuadAdd(Vector3 c, float w, float h, float rotY, Color col)
     {
-        // untextured quad facing +Z (hangar mouth); draw as two-sided
+        float cs = MathF.Cos(rotY), sn = MathF.Sin(rotY); var r = new Vector3(cs, 0, -sn) * (w / 2); var u = new Vector3(0, h / 2, 0);
         Rlgl.SetTexture(whiteTex.Id);
         Rlgl.Begin(DrawMode.Quads);
         Rlgl.Color4ub(col.R, col.G, col.B, col.A);
-        Rlgl.TexCoord2f(0, 0); Rlgl.Vertex3f(c.X - w / 2, c.Y - h / 2, c.Z); Rlgl.TexCoord2f(1, 0); Rlgl.Vertex3f(c.X + w / 2, c.Y - h / 2, c.Z);
-        Rlgl.TexCoord2f(1, 1); Rlgl.Vertex3f(c.X + w / 2, c.Y + h / 2, c.Z); Rlgl.TexCoord2f(0, 1); Rlgl.Vertex3f(c.X - w / 2, c.Y + h / 2, c.Z);
+        var q0 = c - r - u; var q1 = c + r - u; var q2 = c + r + u; var q3 = c - r + u;
+        Rlgl.TexCoord2f(0, 0); Rlgl.Vertex3f(q0.X, q0.Y, q0.Z); Rlgl.TexCoord2f(1, 0); Rlgl.Vertex3f(q1.X, q1.Y, q1.Z);
+        Rlgl.TexCoord2f(1, 1); Rlgl.Vertex3f(q2.X, q2.Y, q2.Z); Rlgl.TexCoord2f(0, 1); Rlgl.Vertex3f(q3.X, q3.Y, q3.Z);
         Rlgl.End(); Rlgl.SetTexture(0);
     }
     void DrawRingAdd(Vector3 c, float r, Color col)
@@ -339,6 +343,14 @@ public sealed unsafe partial class Game
     }
     void DrawSelection(float t)
     {
+        if (sim.G.exMoving)
+        {
+            var dest = new Vector3(sim.G.exDestX, 30, sim.G.exDestY); var from = new Vector3(sim.G.exx, 30, sim.G.exy); var dd = dest - from; float len = dd.Length(); int n = Math.Max(1, (int)(len / 60));
+            Rlgl.DisableDepthMask(); Rlgl.DisableDepthTest();
+            for (int k = 0; k < n; k += 2) Raylib.DrawLine3D(from + dd * (k / (float)n), from + dd * ((k + 1) / (float)n), Col.Hex(0xffffff, 160));
+            Raylib.DrawBillboardPro(cam3, reticleTex, new Rectangle(0, 0, reticleTex.Width, reticleTex.Height), dest, Vector3.UnitY, new Vector2(160, 160), new Vector2(80, 80), t * -40f, Col.Hex(0xffffff));
+            Rlgl.EnableDepthTest(); Rlgl.EnableDepthMask();
+        }
         if (selIsl != null && selIsl.found)
         {
             var p = new Vector3(selIsl.x, selIsl.h, selIsl.y); float r = selIsl.s * 3.6f;
@@ -397,12 +409,12 @@ public sealed unsafe partial class Game
         Raylib.DrawCylinderEx(o + new Vector3(0, .02f, 0), o + new Vector3(0, .05f, 0), 2.3f, 2.3f, 24, new Color((byte)30, (byte)90, (byte)150, (byte)90));
         foreach (var i in G.isl)
         {
-            if (!i.found) continue; var p = o + new Vector3((i.x - Data.EXx) * k, .12f + i.h * k + .1f, (i.y - Data.EXy) * k);
+            if (!i.found) continue; var (lx, lz) = sim.ToLocal(i.x - G.exx, i.y - G.exy); var p = o + new Vector3(lx * k, .12f + i.h * k + .1f, lz * k);
             Raylib.DrawCylinderEx(p, p + new Vector3(0, .2f * (.7f + .5f * i.aeth / i.max), 0), .0f, .09f, 6, i == selIsl ? Col.Hex(0x5adcff) : Col.Hex(0x58e08a));
         }
         Raylib.DrawCylinderEx(o + new Vector3(0, .1f, 0), o + new Vector3(0, .5f, 0), .12f, 0, 3, Color.White);
-        foreach (var s in G.ships) if (s.state != "docked") Raylib.DrawSphere(o + new Vector3((s.x - Data.EXx) * k, .35f + MathF.Sin(t * 2 + s.idx) * .02f, (s.y - Data.EXy) * k), .05f, Col.Hex(s.color));
-        foreach (var q in G.storms) Raylib.DrawCylinderEx(o + new Vector3((q.x - Data.EXx) * k, .3f, (q.y - Data.EXy) * k), o + new Vector3((q.x - Data.EXx) * k, .6f, (q.y - Data.EXy) * k), q.r * k, q.r * k, 16, new Color((byte)138, (byte)90, (byte)255, (byte)70));
+        foreach (var s in G.ships) if (s.state != "docked") { var (sx, sz) = sim.ToLocal(s.x - G.exx, s.y - G.exy); Raylib.DrawSphere(o + new Vector3(sx * k, .35f + MathF.Sin(t * 2 + s.idx) * .02f, sz * k), .05f, Col.Hex(s.color)); }
+        foreach (var q in G.storms) { var (qx, qz) = sim.ToLocal(q.x - G.exx, q.y - G.exy); Raylib.DrawCylinderEx(o + new Vector3(qx * k, .3f, qz * k), o + new Vector3(qx * k, .6f, qz * k), q.r * k, q.r * k, 16, new Color((byte)138, (byte)90, (byte)255, (byte)70)); }
     }
     void DrawScreens(float t)
     {
@@ -424,9 +436,11 @@ public sealed unsafe partial class Game
         var ray = Raylib.GetScreenToWorldRay(m, cam3); float bestD = float.MaxValue; Ship? bs = null; Island? bi = null;
         foreach (var s in sim.G.ships) { var v = shipVis[s.idx]; if (v == null || !v.ExtVis) continue; var h = Raylib.GetRayCollisionSphere(ray, v.ExtPos, 34); if (h.Hit && h.Distance < bestD) { bestD = h.Distance; bs = s; bi = null; } }
         foreach (var i in sim.G.isl) { var h = Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * 1.25f); if (h.Hit && h.Distance < bestD) { bestD = h.Distance; bi = i; bs = null; } }
-        if (bs != null) { sel = bs; selIsl = null; cam.follow = bs; return; }
+        if (bs != null) { sel = bs; selExec = false; selIsl = null; cam.follow = bs; return; }
         if (bi != null) { selIsl = bi; return; }
-        var eh = Raylib.GetRayCollisionBox(ray, new BoundingBox(new Vector3(Data.EXx - 170, 0, Data.EXy - 250), new Vector3(Data.EXx + 170, 140, Data.EXy + 250)));
-        if (eh.Hit) { var d = sim.G.ships.FirstOrDefault(s => s.state == "docked"); if (d != null) { sel = d; selIsl = null; cam.follow = null; cam.tx = Data.EXx; cam.tz = Data.EXy; cam.ty = 0; } }
+        if (selExec && ray.Direction.Y < -1e-4f) { float tt = -ray.Position.Y / ray.Direction.Y; var gp = ray.Position + ray.Direction * tt; sim.SailTo(gp.X, gp.Z); return; }
+        Matrix4x4.Invert(ExM, out var inv); var lray = new Ray(Vector3.Transform(ray.Position, inv), Vector3.TransformNormal(ray.Direction, inv));
+        var eh = Raylib.GetRayCollisionBox(lray, new BoundingBox(new Vector3(-170, 0, -250), new Vector3(170, 140, 250)));
+        if (eh.Hit) { var d = sim.G.ships.FirstOrDefault(s => s.state == "docked"); if (d != null) { sel = d; selIsl = null; cam.follow = null; cam.tx = sim.G.exx; cam.tz = sim.G.exy; cam.ty = 0; } }
     }
 }
