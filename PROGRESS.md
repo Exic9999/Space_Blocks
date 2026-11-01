@@ -37,30 +37,17 @@ Ideas not done: combat/enemies, ship-to-ship trading, sfx beyond simple synth.
 Run the game with `.venv\Scripts\python.exe main.py` (`run.sh` assumes `.venv/bin`). Headless tests: set `SDL_VIDEODRIVER=dummy` and `SDL_AUDIODRIVER=dummy`.
 All suites (sim_test, smoke, soak, web3d) passed on Windows.
 
-## Native Windows port of the 3D game (started 2026-11-01) — RESUME HERE
-**Goal (user request):** turn `mobile3d/index.html` (Three.js, ~956 lines) into a very efficient native Windows PC game; language of my choice.
-**Status:** orientation only — NO port code written yet. Last commit before this: df3d9a6.
-**Findings so far**
-- Source of truth for gameplay: `mobile3d/index.html` lines ~80-285 (crew/lore, story beats, newGame/step sim, orders, upgrades) — pure logic, easy to port. Lines ~287-580+ are Three.js rendering (islands, Executor wedge, 5 ship designs, cabins, hangar/corridor/bridge interiors, storms); remaining ~580-956 (interiors, walk mode, input, HUD, save) not yet read.
-- Machine toolchains (checked): no rustc/cargo/gcc/cl/dotnet/go/node on PATH. Python 3.12 + `.venv` exists (pygame-ce, numpy, playwright). winget works (`winget install ...`).
-- Existing Python 2D game (world.py, npc_ai.py etc.) is a separate sim; the 3D web game has its own JS sim (do not mix).
-**Next steps:** (1) decide language/engine (candidates: C# .NET + Raylib-cs, or Rust + macroquad/wgpu; weigh toolchain install cost on this machine), (2) install toolchain, (3) port sim + save format first with a headless test mirroring tests/web3d, (4) port rendering/HUD/walk mode, (5) benchmark frame time vs browser build, (6) update this section + commit.
-
-### Native port — decisions & status (updated 2026-11-01)
-- **Chosen stack:** C# / .NET 8 + Raylib-cs 8.1.0 (OpenGL). Lives in `pc/` (project `pc/SpaceBlocks.csproj`). `pc/bin`, `pc/obj`, `pc/shots` are git-ignored.
-- **Toolchain (user-scope, no admin):** .NET SDK 8.0.427 at `%LOCALAPPDATA%\dotnet8`. Use: `$env:PATH="$env:LOCALAPPDATA\dotnet8;$env:PATH"; cd pc; dotnet run -c Release`. GPU: Intel Iris Xe (OpenGL OK; verified a raylib window + screenshot works).
-- **Fully read** mobile3d/index.html. Port map: sim = lines 80-285 + walk collision 760-791 (RECTS/BLOCK/TANKS/PADS); rendering = 287-757; HUD/input 806-897; save = localStorage JSON (replace with `%APPDATA%/SpaceBlocks/save.json`); audio = WebAudio synth (replace with generated raylib Wave/Sound).
-- **Fidelity plan:** simple lit/vertex-colored meshes + additive glow billboards (no PBR/PMREM); immediate-mode HUD; WASD + mouse-look walk mode (no joystick). Accept: exact RNG parity with web is impossible (unseeded Math.random) — test invariants, not outputs.
-- **Acceptance spec:** tests/web3d/test_3d.py (50 checks) — port invariants: orders, picking, bridge→corridor→hangar traversal, wall blocking, save/continue, crawl skip, legacy-save finale rule, dt=0.6 soak (no NaN, no ship stuck >10 game-min).
-- **Milestones:** [x] 1 sim + headless `--selftest` (20/20 pass; files pc/Data.cs Sim.cs Walk.cs SelfTest.cs; run: `dotnet run -c Release -- --selftest`) · [x] 2 command view [x] 3 HUD/upgrades/menu/title/crawl [x] 4 walk mode [x] 5 cabins (simplified) [x] 6a save/continue (%APPDATA%SpaceBlockssave.json) · [ ] 6b audio · [ ] 7 `--bench`, publish self-contained exe.
-- Finding: economy soft-lock exists in the web game too (spend all Aetherite on upgrades -> docked ships cannot refuel). Faithful port; consider a mercy rule later.
-- Next action: milestone 2 (command-view rendering in pc/Render*.cs, Raylib).'
-
-### Native port — milestone 2-5 done (2026-11-01)
-- Files in `pc/`: Data.cs, Sim.cs, Walk.cs, SelfTest.cs (logic) · Gfx.cs (MeshBuilder, LitShader, procedural textures) · Scene.cs (islands, Executor, 5 ships, figures) · Interior.cs (hangar/corridor/bridge) · Game.cs (loop, vis sync, ship anim, camera, exterior/interior render, picking) · Hud.cs (input, HUD, title, menu, upgrades, crawl, cabin) · Demo.cs (harness) · Program.cs.
-- **Run:** `$env:PATH="$env:LOCALAPPDATA\dotnet8;$env:PATH"; cd pc; dotnet run -c Release` · **Tests:** `dotnet bin/Release/net8.0/SpaceBlocks.dll --selftest` · **Screenshots:** `--demo <cmd|follow|island|exec|storm|walk-bridge|walk-hangar|walk-corridor|cabin|sheet|crawl|title> shots/x.png` · **Bench:** `--bench`.
-- **Gotchas learned:** (1) Raylib-cs needs `Matrix4x4.Transpose()` on any System.Numerics matrix passed to DrawMesh. (2) Shader attribute locations pinned with `layout(location=..)` (raylib VAO uses fixed 0/2/3). (3) Backface culling disabled globally + shader flips normals for back faces. (4) `Rlgl.SetClipPlanes(near,far)` before each BeginMode3D (exterior 2..80000, interior .08..2000).
-- **Perf (Intel Iris Xe, 1080p, MSAA4x, vsync off):** command view ~1000 fps, walk hangar ~420 fps, walk bridge ~305 fps; sim step 0.005-0.01 ms. (Periodic 50-80 ms "spikes" in --bench are GPU queue drains at >300fps, not stalls.)
-- **Controls:** drag=orbit, wheel=zoom, click ship/island, right-click island=lock on, WASD pan, Space scan, L/R/H/C/G orders, U upgrades, V cabin, B bridge (walk: WASD+mouse, E enter ship, T talk, B back), Tab cycle islands, 1-5 pilots, ] speed, F5/F9 save/load, Esc menu.
-- **DONE (milestones 6b-7):** audio (Audio.cs, procedural music + sfx, M toggles), `--uitest` 22/22, `--audiotest`, `--selftest` 20/20, README in pc/, self-contained exe published to `pc/dist/SpaceBlocks/SpaceBlocks.exe` (git-ignored; rebuild with the publish command in pc/README.md). Port complete; possible polish: more hull detail, terrain texture, gamepad, window-island view.
-- Publish needs: `dotnet publish -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -p:DebugType=none -o dist/SpaceBlocks` from pc/.
+## Native Windows port of the 3D game (2026-11-01) — RESUME HERE
+**Goal (user request):** turn `mobile3d/index.html` (Three.js) into a very efficient native Windows PC game; language of my choice.
+**STATUS: COMPLETE and published.** C# / .NET 8 / Raylib-cs 8.1.0 (OpenGL 3.3) in `pc/`. Launch: `pc\dist\SpaceBlocks\SpaceBlocks.exe` (self-contained; `dist/` is git-ignored, rebuild with the publish command below). Not yet played by a human with real mouse/keyboard: ask the user to try it and report problems.
+**Tests (all passing):** `--selftest` 20/20 (sim, save, walk, legacy-save, soaks) · `--uitest` 29/29 (picking, orders, walk, cabin, save/continue, crawl, injected real clicks incl. overlay blocking, pan direction) · `--audiotest` (device ready, 24 s music loop streams).
+**Commands** (SDK is user-scope, not on PATH): `$env:PATH="$env:LOCALAPPDATA\dotnet8;$env:PATH"; cd pc`
+- run: `dotnet run -c Release` · tests: `dotnet bin/Release/net8.0/SpaceBlocks.dll --selftest|--uitest|--audiotest|--bench`
+- screenshots: `--demo <cmd|follow|island|exec|storm|walk-bridge|walk-hangar|walk-corridor|cabin|sheet|crawl|title> shots/x.png` (view PNGs with the Read tool)
+- publish: `dotnet publish -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -p:DebugType=none -o dist/SpaceBlocks`
+**Layout (pc/):** Data/Sim/Walk (logic) · Gfx (MeshBuilder, LitShader, textures) · Scene/Interior (procedural models) · Game (loop, camera, render, picking) · Hud (UI, input, screens, cabin) · Audio · Demo/SelfTest (harnesses) · Program · README.md.
+**Controls:** drag=orbit, wheel/Z/X=zoom, WASD pan, click ship/island/chip, right-click island=lock on, Space scan, L/R/H/C/G orders, U upgrades, V cabin, B bridge (walk: WASD+mouse, E enter ship, T talk, B back), Tab cycle islands, 1-5 pilots, ] speed, M music, F5/F9 save/load, Esc menu. Save: `%APPDATA%\SpaceBlocks\save.json` (autosave 10 s).
+**Perf (Intel Iris Xe, 1080p, MSAA4x, vsync off):** command view ~1000 fps, walk hangar ~420 fps, walk bridge ~305 fps; sim step ~0.01 ms. Periodic 50-80 ms spikes in `--bench` are GPU-queue drains at >300 fps, not stalls. Published exe idles at ~275 MB working set.
+**Known simplifications vs web build:** no PBR/env maps, simplified cabins (per-crew props reduced), no pad numbers, static flag, no hull panel textures, WASD/mouse instead of joystick/pinch. Game-design finding (exists in web build too): spending all Aetherite on upgrades soft-locks docked ships (cannot refuel); consider a mercy rule.
+**Gotchas learned:** (1) Raylib-cs needs `Matrix4x4.Transpose()` for any System.Numerics matrix passed to DrawMesh. (2) Pin shader attribute locations with `layout(location=0/2/3)`. (3) Backface culling off + shader flips normals. (4) Call `Rlgl.SetClipPlanes(near,far)` before each BeginMode3D. (5) UI layering: `curLayer`/`TopLayer` in Hud.cs make overlays modal; clicks are read once per frame (`clickPressed`) and can be injected (`Inject/InjMouse/InjClick`) for tests.
+**Possible next work:** play-test feedback, hull panel textures, pad numbers, gamepad, mercy rule for the soft-lock, push to origin (branch is several commits ahead, not pushed).

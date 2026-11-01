@@ -77,7 +77,8 @@ public sealed unsafe partial class Game
     }
     void ResetViews()
     {
-        foreach (var o in islVis) if (o != null) { }
+        foreach (var o in islVis) if (o?.Gfx != null) { Raylib.UnloadMesh(o.Gfx.Rock); Raylib.UnloadMesh(o.Gfx.Crystal); }
+        foreach (var o in shipVis) if (o?.Gfx != null) Raylib.UnloadMesh(o.Gfx.Mesh);
         for (int i = 0; i < islVis.Length; i++) islVis[i] = new IslandVis();
         for (int i = 0; i < shipVis.Length; i++) shipVis[i] = new ShipVis();
         cam.follow = null; cam.tx = Data.EXx; cam.tz = Data.EXy; cam.ty = 0; cam.dist = 1500; cam.az = .6f; cam.el = .5f;
@@ -221,12 +222,12 @@ public sealed unsafe partial class Game
         float t = T; var G = sim.G;
         Rlgl.SetClipPlanes(2, 80000);
         Raylib.BeginMode3D(cam3);
-        if (Environment.GetEnvironmentVariable("SB_NOSKY") == null) DrawSky(camPos, 40000);
+        DrawSky(camPos, 40000);
         lit.SetExterior(camPos);
         // islands
         foreach (var i in G.isl)
         {
-            var v = islVis[i.id]; if (v?.Gfx == null) continue; if (Environment.GetEnvironmentVariable("SB_NOISL") != null) continue;
+            var v = islVis[i.id]; if (v?.Gfx == null) continue;
             float bob = MathF.Sin(t * .5f + i.seed) * 4; float f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed);
             float sc = MathF.Max(.01f, v.shown);
             lit.Draw(v.Gfx.Rock, Matrix4x4.CreateScale(sc) * Matrix4x4.CreateTranslation(i.x, i.h + bob, i.y));
@@ -235,7 +236,7 @@ public sealed unsafe partial class Game
         }
         // executor
         var exM = Matrix4x4.CreateTranslation(Data.EXx, 0, Data.EXy);
-        if (Environment.GetEnvironmentVariable("SB_NOEXEC") == null) lit.Draw(execHull, exM); float fill = MathF.Min(1, G.aeth / 600f);
+        lit.Draw(execHull, exM); float fill = MathF.Min(1, G.aeth / 600f);
         lit.Draw(execTanks, exM, .25f + 1.1f * fill);
         // ships
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.ExtVis) lit.Draw(v.Gfx.Mesh, v.Ext); }

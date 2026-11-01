@@ -5,7 +5,7 @@ through Raylib. Procedural everything: no asset files, meshes are built at start
 
 ## Run
 - Prebuilt: `pc\dist\SpaceBlocks\SpaceBlocks.exe` (self-contained, no .NET install needed; rebuild with the publish command below).
-- From source (needs .NET 8 SDK): `cd pc; dotnet run -c Release`
+- From source (needs the .NET 8 SDK; if `dotnet` is not on PATH use the user-scope install: `$env:PATH="$env:LOCALAPPDATAdotnet8;$env:PATH"`): `cd pc; dotnet run -c Release`
 
 ## Controls
 | | |

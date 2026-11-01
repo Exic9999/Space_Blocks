@@ -10,6 +10,9 @@ public sealed unsafe partial class Game
     Chapter? crawlCh; float crawlT, crawlDur; Action? crawlDone;
     readonly List<Rectangle> hit = new(), prevHit = new();
     Vector2 mouse, dragStart; bool dragging; float dragMoved;
+    bool clickPressed; int curLayer;
+    public bool Inject; public Vector2 InjMouse; public bool InjClick;
+    int TopLayer => crawlActive ? 2 : (showSheet || showMenu) ? 1 : 0;
     float S => Math.Max(.7f, Raylib.GetScreenHeight() / 720f);
     static readonly Color Panel = new((byte)11, (byte)19, (byte)38, (byte)225), Edge = new((byte)60, (byte)130, (byte)170, (byte)255), Dim = new((byte)125, (byte)155, (byte)179, (byte)255), Txt = new((byte)200, (byte)225, (byte)240, (byte)255), Accent = new((byte)90, (byte)220, (byte)255, (byte)255);
 
@@ -40,11 +43,11 @@ public sealed unsafe partial class Game
     void Box(Rectangle r, Color fill, Color? edge = null) { hit.Add(r); Raylib.DrawRectangleRec(r, fill); Raylib.DrawRectangleLinesEx(r, 1, edge ?? Edge); }
     bool Btn(Rectangle r, string txt, float size, bool on = false, bool en = true)
     {
-        hit.Add(r); bool over = en && Over(r);
+        hit.Add(r); bool live = curLayer >= TopLayer; bool over = en && live && Over(r);
         Raylib.DrawRectangleRec(r, over ? new Color((byte)30, (byte)55, (byte)90, (byte)255) : new Color((byte)19, (byte)32, (byte)58, (byte)255));
         Raylib.DrawRectangleLinesEx(r, 1, on ? Accent : Edge);
         var c = !en ? new Color((byte)90, (byte)105, (byte)120, (byte)255) : on ? Accent : Txt; DTextC(txt, r.X + r.Width / 2, r.Y + r.Height / 2 - size * .6f, size, c);
-        return over && Raylib.IsMouseButtonPressed(MouseButton.Left);
+        return over && clickPressed;
     }
 
     // ---------------- story crawl ----------------
@@ -67,7 +70,7 @@ public sealed unsafe partial class Game
 
     void HandleInput(float dt)
     {
-        mouse = Raylib.GetMousePosition();
+        if (Inject) { mouse = InjMouse; clickPressed = InjClick; InjClick = false; } else { mouse = Raylib.GetMousePosition(); clickPressed = Raylib.IsMouseButtonPressed(MouseButton.Left); }
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
             if (crawlActive) EndCrawl(); else if (showSheet) showSheet = false; else if (showMenu) showMenu = false;
@@ -80,7 +83,7 @@ public sealed unsafe partial class Game
         if (Raylib.IsKeyPressed(KeyboardKey.RightBracket)) sim.Speed = sim.Speed == 1 ? 3 : sim.Speed == 3 ? 6 : 1;
         if (mode == Mode.Cmd)
         {
-            if (Raylib.IsMouseButtonPressed(MouseButton.Left) && !UiOver()) { dragging = true; dragMoved = 0; dragStart = mouse; }
+            if (clickPressed && !UiOver()) { dragging = true; dragMoved = 0; dragStart = mouse; }
             if (dragging && Raylib.IsMouseButtonDown(MouseButton.Left)) { var d = Raylib.GetMouseDelta(); dragMoved += MathF.Abs(d.X) + MathF.Abs(d.Y); cam.az -= d.X * .006f; cam.el = Math.Clamp(cam.el + d.Y * .005f, .08f, 1.45f); }
             if (dragging && Raylib.IsMouseButtonReleased(MouseButton.Left)) { dragging = false; if (dragMoved < 10) Tap(mouse); }
             if (Raylib.IsMouseButtonPressed(MouseButton.Right) && !UiOver() && sel != null)
@@ -89,9 +92,9 @@ public sealed unsafe partial class Game
             }
             float wheel = Raylib.GetMouseWheelMove(); if (wheel != 0 && !UiOver()) cam.dist = Math.Clamp(cam.dist * (wheel > 0 ? .9f : 1.12f), 250, 5500);
             if (Raylib.IsKeyDown(KeyboardKey.Z)) cam.dist = Math.Max(250, cam.dist * (1 - dt * 1.5f)); if (Raylib.IsKeyDown(KeyboardKey.X)) cam.dist = Math.Min(5500, cam.dist * (1 + dt * 1.5f));
-            float k = cam.dist * .8f * dt, fx = 0, fz = 0;
-            if (Raylib.IsKeyDown(KeyboardKey.W)) { fx -= 1; } if (Raylib.IsKeyDown(KeyboardKey.S)) { fx += 1; } if (Raylib.IsKeyDown(KeyboardKey.A)) { fz -= 1; } if (Raylib.IsKeyDown(KeyboardKey.D)) { fz += 1; }
-            if (fx != 0 || fz != 0) { cam.follow = null; cam.tx += (-MathF.Sin(cam.az) * fx + MathF.Cos(cam.az) * fz) * -k * -1; cam.tz += (-MathF.Cos(cam.az) * fx - MathF.Sin(cam.az) * fz) * -k * -1; cam.tx = Math.Clamp(cam.tx, 0, Data.W); cam.tz = Math.Clamp(cam.tz, 0, Data.W); }
+            float fy = 0, fxr = 0;
+            if (Raylib.IsKeyDown(KeyboardKey.W)) fy += 1; if (Raylib.IsKeyDown(KeyboardKey.S)) fy -= 1; if (Raylib.IsKeyDown(KeyboardKey.D)) fxr += 1; if (Raylib.IsKeyDown(KeyboardKey.A)) fxr -= 1;
+            if (fy != 0 || fxr != 0) Pan(fy, fxr, cam.dist * .8f * dt);
             if (Raylib.IsKeyPressed(KeyboardKey.Space)) { sim.DoScan(); Play("scan"); } if (Raylib.IsKeyPressed(KeyboardKey.M)) ToggleMusic();
             if (Raylib.IsKeyPressed(KeyboardKey.L)) Order("lock"); if (Raylib.IsKeyPressed(KeyboardKey.R)) Order("return"); if (Raylib.IsKeyPressed(KeyboardKey.H)) Order("hold");
             if (Raylib.IsKeyPressed(KeyboardKey.C)) Order("scout"); if (Raylib.IsKeyPressed(KeyboardKey.G)) Order("auto");
@@ -121,6 +124,11 @@ public sealed unsafe partial class Game
             if (Raylib.IsMouseButtonDown(MouseButton.Left) && !UiOver()) cabAz -= Raylib.GetMouseDelta().X * .008f;
         }
     }
+    public void Pan(float fy, float fxr, float k)
+    {
+        cam.follow = null; float sn = MathF.Sin(cam.az), cs = MathF.Cos(cam.az);
+        cam.tx = Math.Clamp(cam.tx + (-sn * fy + cs * fxr) * k, 0, Data.W); cam.tz = Math.Clamp(cam.tz + (-cs * fy - sn * fxr) * k, 0, Data.W);
+    }
     void EnterWalk() { walk.x = 0; walk.z = -22.5f; walk.yaw = 0; walk.pitch = 0; SetMode(Mode.Walk); }
 
     // ---------------- HUD ----------------
@@ -130,6 +138,7 @@ public sealed unsafe partial class Game
         lastDt = dt; prevHit.Clear(); prevHit.AddRange(hit); hit.Clear();
         float W = Raylib.GetScreenWidth(), H = Raylib.GetScreenHeight(), s = S;
         var G = sim.G;
+        curLayer = 0; if (crawlActive) { curLayer = 2; DrawCrawl(W, H, s, dt); return; }
         if (mode == Mode.Title) { DrawTitle(W, H, s); return; }
         if (mode != Mode.Cabin)
         {
@@ -156,9 +165,9 @@ public sealed unsafe partial class Game
             var r = new Rectangle((W - bw) / 2, H * .3f, bw, bh); Box(r, new Color((byte)11, (byte)18, (byte)36, (byte)240));
             DText($"{tk.name}  \"{tk.call}\"", r.X + 14 * s, r.Y + 9 * s, 16 * s, Rgb(tk.color)); float ty = r.Y + 9 * s + 24 * s; foreach (var ln in lines) { DText(ln, r.X + 14 * s, ty, 16 * s, Txt); ty += 21 * s; }
         }
-        if (showSheet) DrawSheet(W, H, s);
-        if (showMenu) DrawMenu(W, H, s);
-        if (crawlActive) DrawCrawl(W, H, s, dt);
+        if (showSheet) { curLayer = 1; DrawSheet(W, H, s); }
+        if (showMenu) { curLayer = 1; DrawMenu(W, H, s); }
+        curLayer = 0;
         if (!crawlActive && mode != Mode.Cabin) DText($"{Raylib.GetFPS()} fps", W - 70 * s, H - 20 * s, 12 * s, Dim);
     }
 
@@ -187,7 +196,7 @@ public sealed unsafe partial class Game
         foreach (var (label, key) in names) { if (Btn(new Rectangle(bx, by, bw, bh), label, 13 * s, key == "lock")) { if (key == "up") showSheet = true; else if (key == "cabin") { if (sel != null) OpenCabin(sel); } else Order(key); } bx += bw + 6 * s; }
         // radar
         float rs = 130 * s, rx = W - rs - 8 * s, ry = 52 * s; var rr = new Rectangle(rx, ry, rs, rs); Box(rr, new Color((byte)11, (byte)19, (byte)38, (byte)205)); float k = rs / Data.W;
-        if (Raylib.IsMouseButtonPressed(MouseButton.Left) && Over(rr)) { cam.follow = null; cam.tx = Math.Clamp((mouse.X - rx) / k, 0, Data.W); cam.tz = Math.Clamp((mouse.Y - ry) / k, 0, Data.W); cam.ty = 0; }
+        if (clickPressed && curLayer >= TopLayer && Over(rr)) { cam.follow = null; cam.tx = Math.Clamp((mouse.X - rx) / k, 0, Data.W); cam.tz = Math.Clamp((mouse.Y - ry) / k, 0, Data.W); cam.ty = 0; }
         foreach (var i in G.isl) if (i.found) Raylib.DrawRectangleRec(new Rectangle(rx + i.x * k - 3, ry + i.y * k - 3, 6, 6), i == selIsl ? Accent : Rgb(0x58c26a));
         Raylib.DrawRectangleRec(new Rectangle(rx + Data.EXx * k - 4, ry + Data.EXy * k - 4, 8, 8), Color.White);
         foreach (var q in G.storms) { Raylib.DrawCircleV(new Vector2(rx + q.x * k, ry + q.y * k), q.r * k, new Color((byte)130, (byte)90, (byte)255, (byte)70)); Raylib.DrawCircleLinesV(new Vector2(rx + q.x * k, ry + q.y * k), q.r * k, new Color((byte)160, (byte)120, (byte)255, (byte)220)); }

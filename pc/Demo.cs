@@ -120,6 +120,21 @@ public sealed unsafe partial class Game
             OpenCabin(nearShip ?? ns); for (int i = 0; i < 20; i++) Frame(1f / 60); Ok("cabin opens", mode == Mode.Cabin && cabShip != null);
             SetMode(Mode.Walk); Ok("leave ship returns to walk", mode == Mode.Walk); SetMode(Mode.Cmd); for (int i = 0; i < 10; i++) Frame(1f / 60); Ok("command view returns", mode == Mode.Cmd);
             for (int k = 0; k < 5; k++) { OpenCabin(sim.G.ships[Math.Min(k, sim.G.ships.Count - 1)]); Frame(1f / 60); SetMode(Mode.Cmd); } Ok("cabins for all crew build without error", true);
+            // ---- real clicks, injected through the same path as the mouse ----
+            Inject = true; float W = Raylib.GetScreenWidth(), H = Raylib.GetScreenHeight(), sc = S;
+            void ClickAt(float x, float y) { InjMouse = new Vector2(x, y); InjClick = true; Frame(1f / 60); }
+            StartCrawl(Data.Prologue, null); Frame(1f / 60); ClickAt(W - 100 * sc + 44 * sc, 12 * sc + 17 * sc);
+            Ok("clicking SKIP ends the crawl without opening the menu", !crawlActive && !showMenu);
+            sel = sim.G.ships[0]; selIsl = null; sim.GiveOrder(sel, "auto"); Frame(1f / 60);
+            float obw = Math.Min(130 * sc, (W - 20 * sc - 6 * sc * 6) / 6), holdX = 10 * sc + (obw + 6 * sc) + obw / 2, holdY = H - 152 * sc + 100 * sc + 20 * sc;
+            showMenu = true; Frame(1f / 60); ClickAt(holdX, holdY); Ok("open menu blocks the order buttons underneath", sel.order?.type == "auto" && showMenu);
+            showMenu = false; Frame(1f / 60); ClickAt(holdX, holdY); Ok("same click works once the menu is closed", sel.order?.type == "hold");
+            float chip2X = 10 * sc + (128 * sc + 6 * sc) + 64 * sc, chipY = H - 152 * sc + 8 * sc + 28 * sc; sel = sim.G.ships[0];
+            showSheet = true; Frame(1f / 60); ClickAt(chip2X, chipY); Ok("open upgrade sheet blocks pilot chips underneath", sel == sim.G.ships[0] && showSheet);
+            showSheet = false; Frame(1f / 60); ClickAt(chip2X, chipY); Ok("pilot chip click selects when no overlay", sel == sim.G.ships[1]);
+            ClickAt(W / 2, 6 * sc + 16 * sc); Inject = false;
+            cam.az = 0; cam.tx = 1600; cam.tz = 1600; Pan(1, 0, 100); Ok("W pans the view forward (away from camera)", cam.tz < 1600 && MathF.Abs(cam.tx - 1600) < .01f);
+            Pan(0, 1, 100); Ok("D pans the view right", cam.tx > 1600);
             // save / continue
             sim.G.aeth = 777; DoSave(); sim.G.aeth = 1; Ok("continue restores progress", ContinueGame() && MathF.Abs(sim.G.aeth - 777) < .5f && mode == Mode.Cmd);
             // crawl
