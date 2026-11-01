@@ -33,7 +33,7 @@ public sealed class Ship
     public bool scout; public int lastScout = -1; public bool inStorm, warned, walking;
 }
 
-public sealed class Game
+public sealed class GameState
 {
     public float t, aeth = 80, delivered;
     public int upSensors, upQuarters;
@@ -52,7 +52,7 @@ public sealed class Plan { public Island? isl; public bool scout; }
 
 public sealed class Sim
 {
-    public Game G = new();
+    public GameState G = new();
     public List<LogLine> Logs = new();
     public Talk? Talk; public int Speed = 1;
     public float EpilogueIn = -1; public bool CrawlRequested; // set when epilogue crawl should start
@@ -74,7 +74,7 @@ public sealed class Sim
     public void SayTalk(string name, string call, uint color, string text, float secs)
     { Talk = new Talk { name = name, call = call, color = color, text = text, t = secs }; }
     public void ShipTalk(Ship s, string txt, float secs = 4.5f) => SayTalk(s.name, Data.Crew[s.idx].Call, s.color, txt, secs);
-    void Chat(Ship s) { var c = Data.Crew[s.idx]; ShipTalk(s, c.Lines[Rng.Next(c.Lines.Length)]); }
+    public void Chat(Ship s) { var c = Data.Crew[s.idx]; ShipTalk(s, c.Lines[Rng.Next(c.Lines.Length)]); }
 
     // ---------------- new game / ships ----------------
     public void NewGame(int? seed = null)
@@ -97,7 +97,7 @@ public sealed class Sim
         isl = isl.OrderBy(o => Mx.Hypot(o.x - Data.EXx, o.y - Data.EXy)).ToList();
         for (int i = 0; i < isl.Count; i++) isl[i].id = i;
         for (int i = 0; i < 3; i++) isl[i].found = true;
-        G = new Game { isl = isl };
+        G = new GameState { isl = isl };
         beatCool = 0; Logs.Clear(); Talk = null; EpilogueIn = -1;
         for (int i = 0; i < 3; i++) AddShip(i);
         Say("Commander Jason, welcome aboard the Executor.");
@@ -321,7 +321,7 @@ public sealed class Sim
     static void SetLvl(Ship s, string k, int v) { switch (k) { case "eng": s.lv.eng = v; break; case "las": s.lv.las = v; break; case "tank": s.lv.tank = v; break; case "car": s.lv.car = v; break; default: s.lv.hull = v; break; } }
 
     // ---------------- story ----------------
-    sealed class Beat { public string k = ""; public Func<Game, bool> c = _ => false; public object w = ""; public string x = ""; }
+    sealed class Beat { public string k = ""; public Func<GameState, bool> c = _ => false; public object w = ""; public string x = ""; }
     static readonly Beat[] Beats =
     {
         new(){k="welcome",c=g=>g.t>.3,w="EXEC",x="Commander Jason on deck. Systems nominal. Three pilots are waiting in the hangar. Send them to the islands: Aetherite is all that keeps us alive out here."},
@@ -376,7 +376,7 @@ public sealed class Sim
         }
         return Math.Clamp(d.sel, 0, G.ships.Count - 1);
     }
-    public sealed class SaveBlob { public Game? G; public int sel; }
+    public sealed class SaveBlob { public GameState? G; public int sel; }
 
     public static string SavePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpaceBlocks", "save.json");
     public void SaveToDisk(int selIdx)
