@@ -53,7 +53,7 @@ User request (verbatim intent): (1) move teammate/NPC talk messages to bottom-LE
 
 ## Milestones
 [x] P1 DONE: talk box bottom-left above chips/gauges with procedural headshot (Portrait.cs), portraits on pilot chips, Fly HUD hint "hold Ctrl to descend, then F to land"
-[ ] P2 Terrain.cs + island size classes + Sim integration + tests
+[x] P2 DONE: Terrain.cs (IslandShape: heightfield+peaks, flattened pad/clearing/clusters, rivers to the rim, A* trails, trees, ore nodes; cached by (seed,R), not saved), island size classes + guaranteed placement (Sim.NewGame), Sim uses terrain (GroundY, LandSpot=Pad, DockPt, TopY, CruiseFloor, VisibleNodes), Executor never parks in/steers through islands, captain autopilot lands on the pad, pilots score islands by carryable yield, emergency reactor trickle (ReactorFloor 40) fixes the stores soft-lock; selftest 143, uitest 50. NEXT: P3 rendering (Game.UpdateShips hover still uses old ti.s*.6 + mining-beam end + crystal draw use old flat-top; Tap pick radius still 1.25R)
 [ ] P3 island rendering (terrain, water/rivers/waterfalls, trails, trees, mountains) + screenshots
 [ ] P4 tools: commander viewmodel laser/pickaxe (LMB, 1/2), NPC gear on figures
 [ ] P5 tree monsters (sim + render + HUD + tests)

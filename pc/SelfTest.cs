@@ -74,7 +74,7 @@ public static class SelfTest
         Ok("SailTo accepts a course with stores above reserve", nav.SailTo(ax + 600, ay - 400));
         for (int i = 0; i < 4000 && nav.G.exMoving; i++) nav.Step(.1f);
         for (int i = 0; i < 80; i++) nav.Step(.1f); // coast to a stop
-        float dist = Mx.Hypot(nav.G.exx - (ax + 600), nav.G.exy - (ay - 400));
+        float dist = Mx.Hypot(nav.G.exx - nav.G.exDestX, nav.G.exy - nav.G.exDestY);
         Ok("Executor arrives at its destination and stops", !nav.G.exMoving && dist < 40 && nav.G.exSpeed < 1, "dist=" + dist + " speed=" + nav.G.exSpeed);
         Ok("heading turned toward the course", MathF.Abs(nav.G.exHead) > .3f, "head=" + nav.G.exHead);
         Ok("sailing burned some Aetherite but not all", nav.G.aeth < a0 - 1 && nav.G.aeth > Sim.ExReserve, "aeth=" + nav.G.aeth);
@@ -133,7 +133,7 @@ public static class SelfTest
         cc.ex = nodes[0].x + 1.2f; for (int i = 0; i < 1000; i++) cs.MineTick(.1f, true); Ok("pack caps at 12 chunks", cc.ore == Sim.CapCarry, "ore=" + cc.ore);
         tgtI.aeth = 3; cc.ore = 0; for (int i = 0; i < 40; i++) cs.MineTick(.1f, true); Ok("depleted island yields no ore", cc.ore == 0);
         tgtI.aeth = tgtI.max; cc.ore = 12;
-        Ok("visible ore nodes shrink with the island's Aetherite", cs.VisibleNodes(tgtI) == 8 && (tgtI.aeth = tgtI.max * .26f) > 0 && cs.VisibleNodes(tgtI) == 3);
+        int nN = Sim.OreNodes(tgtI).Count; Ok("visible ore nodes shrink with the island's Aetherite", cs.VisibleNodes(tgtI) == nN && (tgtI.aeth = tgtI.max * .26f) > 0 && cs.VisibleNodes(tgtI) == (int)MathF.Ceiling(.26f * nN - .001f), "nodes=" + nN);
         tgtI.aeth = tgtI.max;
         // back home: lift off, autopilot home, dock, deposit
         Ok("takeoff from the island", cs.CapTakeoff() && cc.state == "lift"); for (int i = 0; i < 40 && cc.state == "lift"; i++) cs.Step(.1f); Ok("lift-off ends in flight", cc.state == "fly");
@@ -170,6 +170,39 @@ public static class SelfTest
         Ok("captain soak: no NaN, fuel and ore always in range", !capBad);
         Ok("captain soak: animations always finish (< 10 s each)", maxStateT < 10, "max=" + maxStateT);
         Ok("captain soak: made several island trips", trips >= 3, "trips=" + trips);
+
+        // ---- island terrain: invariants for every size class ----
+        foreach (var (R, tseed) in new[] { (40f, 11), (55f, 12), (90f, 13), (130f, 14), (200f, 15), (330f, 16), (320f, 17), (230f, 18), (100f, 19) })
+        {
+            var sw0 = System.Diagnostics.Stopwatch.StartNew(); var sh = Terrain.Get(tseed, R); long ms = sw0.ElapsedMilliseconds; string nm = $"R={R:F0} class {sh.ClassIdx}";
+            Ok($"terrain {nm}: rivers {(sh.ClassIdx == 0 ? "absent on small islands" : "exist")} and reach the rim", (sh.ClassIdx == 0 ? sh.Rivers.Count == 0 : sh.Rivers.Count >= 1) && sh.Rivers.All(r => r.P[^1].Length() >= .97f * R), $"rivers={sh.Rivers.Count}");
+            Ok($"terrain {nm}: water never runs uphill", sh.Rivers.All(r => { for (int k = 1; k < r.Y.Count; k++) if (r.Y[k] > r.Y[k - 1] + 1e-3f) return false; return true; }));
+            float pH = sh.Height(sh.Pad.X, sh.Pad.Y); bool padOk = true; for (int a = 0; a < 12; a++) { float px = sh.Pad.X + MathF.Cos(a * .5236f) * 4.5f, pz = sh.Pad.Y + MathF.Sin(a * .5236f) * 4.5f; if (sh.Wet(px, pz) || MathF.Abs(sh.Height(px, pz) - pH) > .6f) padOk = false; }
+            Ok($"terrain {nm}: landing pad is dry and flat", padOk);
+            Ok($"terrain {nm}: every ore node is dry and gently sloped", sh.Nodes.Count >= 6 && sh.Nodes.All(n => !sh.Wet(n.X, n.Y) && sh.Slope(n.X, n.Y) < .4f), $"nodes={sh.Nodes.Count}");
+            Ok($"terrain {nm}: trails exist (medium+) and never run through water", (sh.ClassIdx == 0 || sh.Trails.Count >= 1) && sh.Trails.All(t => t.All(p => !sh.Wet(p.X, p.Y))), $"trails={sh.Trails.Count}");
+            Ok($"terrain {nm}: trees stand on dry land", sh.Trees.Count > 10 && sh.Trees.All(t => !sh.Wet(t.x, t.z)), $"trees={sh.Trees.Count}");
+            Ok($"terrain {nm}: finite heights below the flight ceiling", sh.MaxHeight > 0 && sh.MaxHeight < 330 && !float.IsNaN(sh.Height(R * .5f, 0)), $"max={sh.MaxHeight:F0}");
+            if (sh.ClassIdx == 3) Console.WriteLine($"   huge island built in {ms} ms ({sh.Trees.Count} trees, {sh.Trails.Count} trails, {sh.Rivers.Count} rivers)");
+        }
+        var mt = Terrain.Get(15, 200); Ok("large island has real mountains with a summit trail", mt.Peaks.Count >= 2 && mt.Summit > .2f * 200 && mt.Trails.Count >= 2, $"peaks={mt.Peaks.Count} summit={mt.Summit:F0} trails={mt.Trails.Count}");
+        // ---- island placement across many worlds ----
+        bool placeOk = true, boundsOk = true, clearOk = true, countOk = true, reachOk = true, sizesOk = true; string why = "";
+        for (int wsd = 1; wsd <= 40; wsd++)
+        {
+            var pw = new Sim { Rng = new Random(wsd) }; pw.NewGame(wsd * 97 + 3); var L = pw.G.isl;
+            if (L.Count != 14) countOk = false;
+            for (int a = 0; a < L.Count; a++)
+            {
+                var o = L[a]; if (o.x < o.s + 150 - .5f || o.x > Data.W - o.s - 150 + .5f || o.y < o.s + 150 - .5f || o.y > Data.W - o.s - 150 + .5f) { boundsOk = false; why = $"bounds ws{wsd} {o.s:F0}"; }
+                if (Mx.Hypot(o.x - Data.CX, o.y - Data.CY) < o.s + 470 - 1) { clearOk = false; why = $"exec zone ws{wsd}"; }
+                for (int b = a + 1; b < L.Count; b++) if (Mx.Hypot(o.x - L[b].x, o.y - L[b].y) < o.s + L[b].s + 250 - .5f) { placeOk = false; why = $"overlap ws{wsd} {a}/{b}"; }
+            }
+            if (L.Count(o => Mx.Hypot(o.x - Data.CX, o.y - Data.CY) <= 1000) < 5) { reachOk = false; why = $"reach ws{wsd}"; }
+            if (!(L.Max(o => o.s) >= 200 && L.Count(o => o.s < 65) >= 3 && L.Count(o => o.s >= 65 && o.s < 135) >= 3)) { sizesOk = false; why = $"sizes ws{wsd} max={L.Max(o => o.s):F0}"; }
+        }
+        Ok("40 worlds: always 14 islands", countOk); Ok("40 worlds: no two islands overlap (radius sum + 250 gap)", placeOk, why); Ok("40 worlds: every island fully inside the world", boundsOk, why);
+        Ok("40 worlds: the Executor's start is clear", clearOk, why); Ok("40 worlds: at least 5 islands within pilot range of the start", reachOk, why); Ok("40 worlds: a mix of small, medium and at least one very large island", sizesOk, why);
 
         // soak at dt=0.6 for 90 game minutes
         var soak = new Sim { Rng = new Random(99) }; soak.NewGame(777);

@@ -91,22 +91,31 @@ public sealed class Sim
     public void NewGame(int? seed = null)
     {
         mseed = seed ?? (Rng.Next(1, 1000000));
+        // Islands come in four size classes. Placement never overlaps: the largest are placed first, and any island that
+        // cannot fit is shrunk until it does. The inner ring (reachable on a single tank) holds small and medium islands.
         var isl = new List<Island>();
-        for (int i = 0; i < 14; i++)
+        var radii = new List<(float r, bool inner)>();
+        radii.Add((300 + Rnd() * 40, false));                                                   // 1 huge: room for a team-vs-team battle
+        for (int k = 0; k < 3; k++) radii.Add((170 + Rnd() * 60, false));                       // 3 large
+        for (int k = 0; k < 5; k++) radii.Add((70 + Rnd() * 40, k < 2));                        // 5 medium (2 in the inner ring)
+        for (int k = 0; k < 5; k++) radii.Add((38 + Rnd() * 17, k < 3));                        // 5 small: just a few resources (3 in the inner ring)
+        foreach (var (r0, inner) in radii)
         {
-            float x = 0, y = 0; bool ok; int t = 0;
-            do
-            {
-                float a = Rnd() * 6.283f, r = 450 + Rnd() * 1150;
-                x = Data.CX + MathF.Cos(a) * r; y = Data.CY + MathF.Sin(a) * r;
-                ok = isl.All(o => Mx.Hypot(o.x - x, o.y - y) > 300); t++;
-            } while (!ok && t < 60);
-            float s = 70 + Rnd() * 55;
-            var o2 = new Island { id = i, name = Data.IslandNames[i], x = x, y = y, h = -90 + Rnd() * 200, s = s, aeth = 120 + Rnd() * 260, seed = (int)MathF.Floor(Rnd() * 1e6f) };
-            o2.max = o2.aeth; isl.Add(o2);
+            float R = r0; Island? placed = null;
+            for (int shrink = 0; shrink < 12 && placed == null; shrink++, R *= .88f)
+                for (int t = 0; t < 500 && placed == null; t++)
+                {
+                    float dmin = R + 470, dmax = inner ? 940 : 1500; if (dmax <= dmin) dmax = dmin + 60;
+                    float a = Rnd() * 6.283f, d = dmin + Rnd() * (dmax - dmin), x = Data.CX + MathF.Cos(a) * d, y = Data.CY + MathF.Sin(a) * d;
+                    if (x < R + 150 || x > Data.W - R - 150 || y < R + 150 || y > Data.W - R - 150) continue;
+                    if (isl.Any(o => Mx.Hypot(o.x - x, o.y - y) < o.s + R + 250)) continue;
+                    placed = new Island { x = x, y = y, s = R };
+                }
+            placed ??= new Island { x = Data.CX + 1300, y = Data.CY + 1300, s = 30 }; // unreachable in practice; keeps the list complete
+            placed.h = -90 + Rnd() * 200; placed.aeth = 60 + placed.s * 2.2f + Rnd() * placed.s * .4f; placed.max = placed.aeth; placed.seed = (int)MathF.Floor(Rnd() * 1e6f) + 1; isl.Add(placed);
         }
         isl = isl.OrderBy(o => Mx.Hypot(o.x - Data.CX, o.y - Data.CY)).ToList();
-        for (int i = 0; i < isl.Count; i++) isl[i].id = i;
+        for (int i = 0; i < isl.Count; i++) { isl[i].id = i; isl[i].name = Data.IslandNames[i]; }
         for (int i = 0; i < 3; i++) isl[i].found = true;
         G = new GameState { isl = isl };
         beatCool = 0; Logs.Clear(); Talk = null; EpilogueIn = -1;
@@ -136,7 +145,7 @@ public sealed class Sim
             if (d * 2 * .0085f > st.fuel * .85f) continue;
             if (G.storms.Any(q => Mx.Hypot(q.x - i.x, q.y - i.y) < q.r + 150)) continue;
             int crowd = G.ships.Count(o => o != s && o.target == i.id);
-            float sc = i.aeth / (d + 400) * (1 - .3f * MathF.Min(crowd, 3)) + Data.Crew[s.idx].Bold * d * .00004f;
+            float sc = MathF.Min(i.aeth, st.cargo * 2) / (d + 400) * (1 - .3f * MathF.Min(crowd, 3)) + Data.Crew[s.idx].Bold * d * .00004f;
             if (sc > bs) { b = i; bs = sc; }
         }
         return b;
@@ -163,7 +172,7 @@ public sealed class Sim
         List<Pt> wp;
         if (p.isl != null)
         {
-            s.target = p.isl.id; wp = new() { ExPt(0, 400), new(p.isl.x, p.isl.y) }; s.scout = false;
+            s.target = p.isl.id; wp = new() { ExPt(0, 400), DockPt(p.isl) }; s.scout = false;
             Say(s.name + " locked onto " + p.isl.name + " and launched.", C_CYAN);
         }
         else
@@ -185,7 +194,7 @@ public sealed class Sim
         if (type == "mine")
         {
             s.target = isl; Say(s.name + " locked onto " + G.isl[isl].name + ".", C_CYAN);
-            if (s.state == "out" || s.state == "mining") { s.state = "out"; s.wp = new() { new(G.isl[isl].x, G.isl[isl].y) }; }
+            if (s.state == "out" || s.state == "mining") { s.state = "out"; s.wp = new() { DockPt(G.isl[isl]) }; }
         }
         if ((type == "return" || type == "hold" || type == "scout") && (s.state == "out" || s.state == "mining")) GoHome(s);
         if (type == "return") s.order = null;
@@ -257,17 +266,20 @@ public sealed class Sim
     }
 
     // ---------------- Executor navigation ----------------
+    public const float ReactorFloor = 40; bool reactorOn;
     public const float ExMax = 45, ExTurn = .35f, ExBurn = .003f, ExReserve = 30f;
     public bool SailTo(float x, float y)
     {
         if (G.aeth < ExReserve + 5) { Say("Not enough Aetherite in stores to sail (reserve " + (int)ExReserve + ").", C_WARN); return false; }
-        G.exDestX = Math.Clamp(x, 250, Data.W - 250); G.exDestY = Math.Clamp(y, 250, Data.W - 250); G.exMoving = true;
+        x = Math.Clamp(x, 250, Data.W - 250); y = Math.Clamp(y, 250, Data.W - 250);
+        foreach (var o in G.isl) { float dx = x - o.x, dy = y - o.y, d = Mx.Hypot(dx, dy), lim = o.s + 380; if (d < lim) { if (d < 1) { dx = 1; d = 1; } x = o.x + dx / d * lim; y = o.y + dy / d * lim; } } // never park inside an island
+        G.exDestX = Math.Clamp(x, 200, Data.W - 200); G.exDestY = Math.Clamp(y, 200, Data.W - 200); G.exMoving = true;
         Say("Executor setting course.", C_CYAN); return true;
     }
     public bool SailToIsland(Island i)
     {
         float dx = G.exx - i.x, dy = G.exy - i.y, d = Mx.Hypot(dx, dy); if (d < 1) { dx = 1; d = 1; }
-        return SailTo(i.x + dx / d * 380, i.y + dy / d * 380);
+        return SailTo(i.x + dx / d * (i.s + 420), i.y + dy / d * (i.s + 420));
     }
     public void Halt() { if (G.exMoving) Say("Executor holding position.", C_CYAN); G.exMoving = false; }
     void ExStep(float dt)
@@ -279,7 +291,13 @@ public sealed class Sim
             if (d < 15) { G.exMoving = false; Say("Executor on station.", C_CYAN); }
             else
             {
-                float want = MathF.Atan2(-dx, -dy), diff = (((want - G.exHead + MathF.PI) % MathF.Tau) + MathF.Tau) % MathF.Tau - MathF.PI;
+                float sx = dx, sy = dy; // steering vector: straight to the course point unless an island is in the way
+                foreach (var o in G.isl)
+                {
+                    float ux = dx / d, uy = dy / d, ox = o.x - G.exx, oy = o.y - G.exy, along = ox * ux + oy * uy, side = ox * -uy + oy * ux;
+                    if (along > 0 && along < d + 50 && MathF.Abs(side) < o.s + 300) { float sg = side >= 0 ? -1 : 1, L = o.s + 340; sx = (o.x + (-uy) * sg * L) - G.exx; sy = (o.y + ux * sg * L) - G.exy; break; }
+                }
+                float want = MathF.Atan2(-sx, -sy), diff = (((want - G.exHead + MathF.PI) % MathF.Tau) + MathF.Tau) % MathF.Tau - MathF.PI;
                 G.exHead += Math.Clamp(diff, -ExTurn * dt, ExTurn * dt);
                 target = MathF.Abs(diff) < .5f ? MathF.Min(ExMax, MathF.Max(8, d * .35f)) : 0;
             }
@@ -302,6 +320,8 @@ public sealed class Sim
     {
         G.t += dt;
         ExStep(dt);
+        // emergency reactor tap: stores never stay empty, so a run of bad trips cannot strand the whole crew with dry tanks
+        if (G.aeth < Sim.ReactorFloor) { if (!reactorOn) { reactorOn = true; Say("Engineering has tapped the reactor reserve to keep the fleet fuelled.", C_WARN); } G.aeth = MathF.Min(Sim.ReactorFloor, G.aeth + .35f * dt); } else if (G.aeth > Sim.ReactorFloor + 15) reactorOn = false;
         float sens = 300 + 130 * G.upSensors;
         foreach (var s in G.ships)
         {
@@ -440,15 +460,14 @@ public sealed class Sim
     public float InThr, InTurn, InClimb; public bool Piloted; // player input, set by the game each frame
     static float Wrap(float a) => ((a + MathF.PI) % MathF.Tau + MathF.Tau) % MathF.Tau - MathF.PI;
     public float Bob(Island i) => MathF.Sin(G.t * .5f + i.seed) * 4;
-    public float GroundY(Island i, float lx, float lz) => i.h + Bob(i) + Scene.GroundH(i.s, lx, lz);
-    public (float x, float z) LandSpot(Island i) => (-.25f * i.s, .16f * i.s);
-    public static List<(float x, float z)> OreNodes(Island i)
-    {
-        var l = new List<(float, float)>(); float cx = -.25f * i.s, cz = -.1f * i.s, ph = (i.seed % 97) * .1f;
-        for (int k = 0; k < 8; k++) { float a = MathF.PI / 2 + .6f + k * ((MathF.Tau - 1.2f) / 8), r = i.s * (.2f + .015f * (k % 3)); l.Add((cx + MathF.Cos(a) * r, cz + MathF.Sin(a) * r)); }
-        return l;
-    }
-    public int VisibleNodes(Island i) => Math.Clamp((int)MathF.Ceiling(i.aeth / i.max * 8f - .001f), 0, 8);
+    public static IslandShape Shape(Island i) => Terrain.Get(i);
+    public float GroundY(Island i, float lx, float lz) => i.h + Bob(i) + Shape(i).Height(lx, lz);
+    public (float x, float z) LandSpot(Island i) { var p = Shape(i).Pad; return (p.X, p.Y); }
+    public Pt DockPt(Island i) { var c = Shape(i).Clearing; return new Pt(i.x + c.X, i.y + c.Y); } // where pilots hover to mine
+    public float TopY(Island i) => i.h + Bob(i) + Shape(i).MaxHeight; // highest point of the island
+    public float CruiseFloor(float x, float y) { float f = 0; foreach (var i in G.isl) if (Mx.Hypot(i.x - x, i.y - y) < i.s + 60) f = MathF.Max(f, TopY(i) + 30); return f; }
+    public static List<(float x, float z)> OreNodes(Island i) => Terrain.Get(i).Nodes.Select(v => (v.X, v.Y)).ToList();
+    public int VisibleNodes(Island i) { int n = Shape(i).Nodes.Count; return Math.Clamp((int)MathF.Ceiling(i.aeth / i.max * n - .001f), 0, n); }
     public int NearestNode(Island i, float ex, float ez, float reach = 3.6f)
     {
         var nodes = OreNodes(i); int vis = VisibleNodes(i), best = -1; float bd = reach;
@@ -472,7 +491,7 @@ public sealed class Sim
         foreach (var i in G.isl)
         {
             float d = Mx.Hypot(i.x - c.x, i.y - c.y); if (d > i.s * .85f) continue;
-            if (c.alt - (i.h + Bob(i) + .12f * i.s) > 85) continue; if (d < bd) { bd = d; best = i; }
+            if (c.alt - GroundY(i, c.x - i.x, c.y - i.y) > 85) continue; if (d < bd) { bd = d; best = i; }
         }
         return best;
     }
@@ -526,6 +545,7 @@ public sealed class Sim
                     var i = G.isl[c.island]; var (lx, lz) = LandSpot(i); c.lt += dt / 3; float k = MathF.Min(1, c.lt); k = k * k * (3 - 2 * k);
                     float tx = i.x + lx, ty = i.y + lz, ta = GroundY(i, lx, lz) + .5f;
                     c.x = c.sx + (tx - c.sx) * k; c.y = c.sy + (ty - c.sy) * k; c.alt = c.salt + (ta - c.salt) * k; c.speed = 0;
+                    { float gnd = GroundY(i, c.x - i.x, c.y - i.y) + 10; if (k < .9f && c.alt < gnd) c.alt = gnd; } // clear any ridge on the way down
                     if (c.lt >= 1) { c.state = "landed"; c.ang = MathF.PI; c.ex = lx - 4.5f; c.ez = lz + 1.5f; c.mineT = 0; Say("Landed on " + i.name + ". Hold E near the glowing ore to mine it.", C_GOOD); }
                     break;
                 }
@@ -546,10 +566,10 @@ public sealed class Sim
         var c = G.cap; float turn = 0, climb = 0, wantAlt = float.NaN;
         if (c.auto == "goto")
         {
-            var i = G.isl[c.target]; float d = Mx.Hypot(i.x - c.x, i.y - c.y), want = MathF.Atan2(i.y - c.y, i.x - c.x);
+            var i = G.isl[c.target]; var (px, pz) = LandSpot(i); float tx = i.x + px, ty = i.y + pz; float d = Mx.Hypot(tx - c.x, ty - c.y), want = MathF.Atan2(ty - c.y, tx - c.x);
             turn = Math.Clamp(Wrap(want - c.ang) * 2.5f, -1, 1); c.thr = d > 450 ? .9f : Math.Clamp(d / 450f, .18f, .9f);
-            float top = i.h + Bob(i) + .12f * i.s; wantAlt = d > i.s * 1.3f + 150 ? MathF.Max(110, top + 70) : top + 40;
-            if (d < i.s * .55f && c.alt - top < 75) { CapLand(i); return; }
+            float padG = GroundY(i, px, pz); wantAlt = d > i.s + 160 ? MathF.Max(110, TopY(i) + 60) : padG + 40;
+            if (d < 40 && c.alt - padG < 75) { CapLand(i); return; }
         }
         else if (c.auto == "home")
         {
@@ -571,7 +591,7 @@ public sealed class Sim
         if (c.fuel < home && !c.lowWarned) { c.lowWarned = true; Say("Captain's ship fuel is low. Head home (R).", C_WARN); }
         if (c.fuel >= home + 3) c.lowWarned = false;
         float sens = 300 + 130 * G.upSensors; foreach (var i in G.isl) if (!i.found && Mx.Hypot(i.x - c.x, i.y - c.y) < sens * .8f) Discover(i, null);
-        foreach (var i in G.isl) { float d = Mx.Hypot(i.x - c.x, i.y - c.y); if (d < i.s * .9f) { float floor = i.h + Bob(i) + .12f * i.s + 8; if (c.alt < floor && c.auto != "goto") c.alt = floor; } }
+        foreach (var i in G.isl) { float d = Mx.Hypot(i.x - c.x, i.y - c.y); if (d < i.s) { float floor = GroundY(i, c.x - i.x, c.y - i.y) + 8; if (c.alt < floor) c.alt = floor; } }
     }
 
     // ---------------- upgrades ----------------
@@ -650,6 +670,7 @@ public sealed class Sim
         var cp = G.cap; // captain animation states cannot resume mid-way: settle them
         if (cp.state is "launch" or "dock") { cp.state = "docked"; cp.lt = 0; }
         else if (cp.state == "land") { cp.island = Math.Clamp(cp.island, 0, G.isl.Count - 1); var li = G.isl[cp.island]; var ls = LandSpot(li); cp.state = "landed"; cp.lt = 0; cp.ex = ls.x - 4.5f; cp.ez = ls.z + 1.5f; }
+        if (cp.state == "landed") { cp.island = Math.Clamp(cp.island, 0, G.isl.Count - 1); var lsp = LandSpot(G.isl[cp.island]); cp.ex = lsp.x - 4.5f; cp.ez = lsp.z + 1.5f; cp.mineT = 0; } // terrain regenerates from the seed: stand at the current landing pad
         else if (cp.state == "lift") { cp.state = "fly"; cp.lt = 0; cp.speed = 0; cp.thr = 0; }
         if (cp.state == "landed" && (cp.island < 0 || cp.island >= G.isl.Count)) cp.state = "docked";
         cp.auto = cp.auto == "goto" && (cp.target < 0 || cp.target >= G.isl.Count) ? "" : cp.auto;
