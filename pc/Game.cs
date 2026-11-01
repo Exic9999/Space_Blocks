@@ -3,10 +3,10 @@ using System.Numerics;
 using Raylib_cs;
 namespace SpaceBlocks;
 
-public enum Mode { Title, Cmd, Walk, Cabin }
+public enum Mode { Title, Cmd, Walk, Cabin, Fly, Eva }
 
 public sealed class CamState { public float az = .6f, el = .5f, dist = 1500, tx = Data.CX, ty = 0, tz = Data.CY; public Ship? follow; }
-public sealed class IslandVis { public IslandGfx? Gfx; public float shown; }
+public sealed class IslandVis { public IslandGfx? Gfx, EvaGfx; public float shown; }
 public sealed class ShipVis { public ShipGfx? Gfx; public string Sig = ""; public Matrix4x4 Ext, Int; public bool ExtVis, IntVis; public Vector3 ExtPos; }
 
 public sealed unsafe partial class Game
@@ -87,7 +87,7 @@ public sealed unsafe partial class Game
     void SetMode(Mode m)
     {
         mode = m; showSheet = false;
-        if (m == Mode.Walk) { Raylib.DisableCursor(); } else if (Raylib.IsCursorHidden()) Raylib.EnableCursor();
+        if (m is Mode.Walk or Mode.Eva) { Raylib.DisableCursor(); } else if (Raylib.IsCursorHidden()) Raylib.EnableCursor();
     }
 
     public void Boot() { sim.NewGame(1234); sel = sim.G.ships[0]; ResetViews(); mode = Mode.Title; }
@@ -110,10 +110,12 @@ public sealed unsafe partial class Game
 
     public void Frame(float dt)
     {
-        bool paused = showSheet || showMenu || crawlActive;
-        if (mode != Mode.Title && !paused) sim.Step(dt * sim.Speed);
+        bool paused = showSheet || showMenu || crawlActive; bool body = mode is Mode.Fly or Mode.Eva;
+        sim.Piloted = mode == Mode.Fly && !paused;
+        if (mode != Mode.Title && !paused) sim.Step(body ? dt : dt * sim.Speed);
         if (sim.CrawlRequested) { sim.CrawlRequested = false; StartCrawl(Data.Epilogue, null); }
         if (sim.G.ships.Count > 0) { SyncVis(); UpdateShips(T, dt); }
+        SyncCaptain(); UpdateCaptainVis(T, dt); if (sim.G.cap.state != lastCapState) { var oldCs = lastCapState; lastCapState = sim.G.cap.state; OnCapState(oldCs, lastCapState); }
         HandleInput(dt); UpdateAudio(dt);
         UpdateCam(dt);
         Raylib.BeginDrawing();
@@ -199,6 +201,7 @@ public sealed unsafe partial class Game
     // ---------------- camera ----------------
     void UpdateCam(float dt)
     {
+        if (mode is Mode.Fly or Mode.Eva) { UpdateCaptainCam(dt); return; }
         if (mode == Mode.Walk || mode == Mode.Cabin) return;
         if (execFollow && cam.follow == null) { float k0 = MathF.Min(1, dt * 3); cam.tx += (sim.G.exx - cam.tx) * k0; cam.ty += (0 - cam.ty) * k0; cam.tz += (sim.G.exy - cam.tz) * k0; }
         if (cam.follow != null)
@@ -224,7 +227,7 @@ public sealed unsafe partial class Game
     void RenderExterior()
     {
         float t = T; var G = sim.G;
-        Rlgl.SetClipPlanes(2, 80000);
+        Rlgl.SetClipPlanes(mode == Mode.Eva ? .15 : 2, 80000);
         Raylib.BeginMode3D(cam3);
         DrawSky(camPos, 40000);
         lit.SetExterior(camPos);
@@ -232,9 +235,10 @@ public sealed unsafe partial class Game
         foreach (var i in G.isl)
         {
             var v = islVis[i.id]; if (v?.Gfx == null) continue;
-            float bob = MathF.Sin(t * .5f + i.seed) * 4; float f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed);
+            float bob = sim.Bob(i); float f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed);
             float sc = MathF.Max(.01f, v.shown);
-            lit.Draw(v.Gfx.Rock, Matrix4x4.CreateScale(sc) * Matrix4x4.CreateTranslation(i.x, i.h + bob, i.y));
+            bool onFoot = mode == Mode.Eva && sim.G.cap.state == "landed" && sim.G.cap.island == i.id; if (onFoot && v.EvaGfx == null) v.EvaGfx = Scene.BuildIsland(i.seed, i.s, true);
+            lit.Draw(onFoot && v.EvaGfx != null ? v.EvaGfx.Rock : v.Gfx.Rock, Matrix4x4.CreateScale(sc) * Matrix4x4.CreateTranslation(i.x, i.h + bob, i.y));
             float R = i.s, cs = (.35f + .65f * f) * R * sc;
             lit.Draw(v.Gfx.Crystal, Matrix4x4.CreateScale(cs) * Matrix4x4.CreateTranslation(i.x - R * .25f * sc, i.h + bob + v.Gfx.Top * sc, i.y - R * .1f * sc), (.6f + .9f * f) * p);
         }
@@ -244,13 +248,14 @@ public sealed unsafe partial class Game
         lit.Draw(execTanks, exM, .25f + 1.1f * fill);
         // ships
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.ExtVis) lit.Draw(v.Gfx.Mesh, v.Ext); }
+        DrawCaptainExt(cam3, t); DrawOreNodes(t);
         // ---- additive / transparent effects ----
         Rlgl.DisableDepthMask(); Raylib.BeginBlendMode(BlendMode.Additive);
         foreach (var g in execGlows) Billboard(cam3, Vector3.Transform(g.Pos, exM), g.Size * (g.Size > 50 && g.Op > .9f ? .92f + .08f * MathF.Sin(t * 9 + g.Pos.X) : 1), Tint(g.Col, g.Op));
         var ff = ExW(0, 19, 239); DrawQuadAdd(ff, 110, 32, sim.G.exHead, Tint(Col.Hex(0x40a8ff), .2f + .1f * MathF.Sin(t * 3)));
         foreach (var i in G.isl)
         {
-            var v = islVis[i.id]; float bob = MathF.Sin(t * .5f + i.seed) * 4;
+            var v = islVis[i.id]; float bob = sim.Bob(i);
             if (v?.Gfx != null)
             {
                 float R = i.s, sc = MathF.Max(.01f, v.shown), f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed);
@@ -271,6 +276,7 @@ public sealed unsafe partial class Game
                 Billboard(cam3, b, 36 + MathF.Sin(t * 30) * 10, Tint(Col.Hex(0xff8aa0), .9f));
             }
         }
+        DrawCaptainGlows(cam3, t); DrawOreGlows(t);
         if (sim.ScanFx > 0) { float k = 1 - sim.ScanFx / 1.4f; DrawRingAdd(new Vector3(sim.G.exx, 30, sim.G.exy), (700 + 260 * G.upSensors) * k, Tint(Col.Hex(0x5adcff), .5f * (1 - k))); }
         Raylib.EndBlendMode(); Rlgl.EnableDepthMask();
         DrawStorms(t);
@@ -391,6 +397,7 @@ public sealed unsafe partial class Game
             var tk = Walker.Tanks[ti]; float h = MathF.Max(.05f, 10 * fill); lit.Draw(ti == 3 ? intTankFuel : intTank, Matrix4x4.CreateScale(1, h, 1) * Matrix4x4.CreateTranslation(tk[0], .5f + h / 2, tk[1]));
         }
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.IntVis) lit.Draw(v.Gfx.Mesh, v.Int); }
+        if (capVis.Gfx != null && capVis.IntVis) lit.Draw(capVis.Gfx.Mesh, capVis.Int);
         foreach (var s in G.ships)
         {
             bool show = s.state == "docked" && (s.ph != "aboard"); if (!show) continue;
@@ -413,6 +420,7 @@ public sealed unsafe partial class Game
             Billboard(icam, hand, .7f + .2f * flick, Tint(bc, .9f)); Billboard(icam, tp, 1.2f, Tint(bc, .7f * flick));
         }
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.IntVis) { bool mv = s.state is "landing" or "takeoff"; foreach (var g in v.Gfx.Glows) Billboard(icam, Vector3.Transform(g.Pos, v.Int), g.Size * ((mv ? 1f : .25f) * (.9f + .1f * MathF.Sin(t * 30)) + .1f), Tint(g.Col, g.Op)); } }
+        if (capVis.Gfx != null && capVis.IntVis) { bool mvc = sim.G.cap.state is "launch" or "dock"; foreach (var g in capVis.Gfx.Glows) Billboard(icam, Vector3.Transform(g.Pos, capVis.Int), g.Size * ((mvc ? 1f : .25f) * (.9f + .1f * MathF.Sin(T * 30)) + .1f), Tint(g.Col, g.Op)); }
         Raylib.EndBlendMode(); Rlgl.EnableDepthMask();
         Raylib.EndMode3D();
     }

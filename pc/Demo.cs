@@ -33,6 +33,9 @@ public sealed unsafe partial class Game
             case "room-quarters": SetMode(Mode.Walk); walk.x = -4.5f; walk.z = -12; walk.yaw = 1.57f; break;
             case "room-engineering": SetMode(Mode.Walk); walk.x = 4.5f; walk.z = -12; walk.yaw = -1.2f; walk.pitch = -.05f; break;
             case "room-cargo": SetMode(Mode.Walk); walk.x = -17.5f; walk.z = 5.2f; walk.yaw = 1.57f; break;
+            case "cap-hangar": SetMode(Mode.Walk); walk.x = 3.5f; walk.z = 9; walk.yaw = -1.1f; walk.pitch = -.12f; break;
+            case "cap-fly": { sim.G.aeth = 300; foreach (var s2 in sim.G.ships) sim.GiveOrder(s2, "hold"); sim.CapLaunch(); for (int i = 0; i < 70; i++) sim.Step(.1f); selIsl = sim.G.isl[0]; selIsl.found = true; sim.Piloted = true; sim.InThr = 1; for (int i = 0; i < 40; i++) sim.Step(.1f); sim.InThr = 0; sim.CapAutoGoto(selIsl); for (int i = 0; i < 60; i++) sim.Step(.1f); lastCapState = sim.G.cap.state; mode = Mode.Fly; capCamInit = false; for (int i = 0; i < 30; i++) Frame(1f / 60); break; }
+            case "cap-eva": { sim.G.aeth = 300; foreach (var s2 in sim.G.ships) sim.GiveOrder(s2, "hold"); sim.CapLaunch(); for (int i = 0; i < 70; i++) sim.Step(.1f); var ti = sim.G.isl[0]; ti.found = true; sim.CapAutoGoto(ti); for (int i = 0; i < 1500 && sim.G.cap.state != "landed"; i++) sim.Step(.1f); var nd = Sim.OreNodes(ti); var cc2 = sim.G.cap; cc2.ex = nd[0].x - 4; cc2.ez = nd[0].z + 3; evaYaw = MathF.Atan2(-(nd[0].x - cc2.ex), -(nd[0].z - cc2.ez)); evaPitch = -.15f; lastCapState = cc2.state; SetMode(Mode.Eva); for (int i = 0; i < 40; i++) Frame(1f / 60); break; }
             case "walk-corridor": SetMode(Mode.Walk); walk.x = 0; walk.z = -8; walk.yaw = 0; break;
             case "cabin": OpenCabin(sim.G.ships[0]); break;
             case "sail": { sim.G.aeth = 400; sim.SailTo(sim.G.exx + 500, sim.G.exy - 700); for (int i = 0; i < 700; i++) sim.Step(.1f); cam.dist = 900; cam.el = .5f; cam.az = 1.2f; selExec = true; execFollow = true; for (int i = 0; i < 50; i++) Frame(1f / 30); break; }
@@ -149,6 +152,26 @@ public sealed unsafe partial class Game
             Order("hold"); Ok("HALT stops the course", !sim.G.exMoving); Inject = false;
             EnterWalk(); Frame(1f / 60); FindNearby(); Ok("commander chair offers the helm", nearHelm); UseHelm(); Ok("using the helm opens the map with the Executor selected", mode == Mode.Cmd && selExec);
             selExec = false; sel = sim.G.ships[0];
+            // ---- captain: board in the hangar, fly, land, mine by hand, come home, deposit ----
+            Inject = false; sim.G.aeth = 400; foreach (var s3 in sim.G.ships) sim.GiveOrder(s3, "hold"); sim.G.cap.fuel = Sim.CapFuelMax; SetMode(Mode.Cmd); EnterWalk(); walk.x = Data.CapPad[0] - 4.5f; walk.z = Data.CapPad[1]; Frame(1f / 60); FindNearby();
+            Ok("captain's ship is parked in the hangar and can be boarded", nearCap && sim.G.cap.state == "docked");
+            BoardCaptain(); Ok("boarding launches the ship and switches to flight view", mode == Mode.Fly && sim.G.cap.state == "launch");
+            for (int i = 0; i < 400 && sim.G.cap.state != "fly"; i++) Frame(1f / 30); Ok("launch animation ends in free flight", sim.G.cap.state == "fly" && mode == Mode.Fly);
+            sim.InThr = 0; var fi = sim.G.isl[0]; fi.found = true; selIsl = fi; sim.CapAutoGoto(fi);
+            for (int i = 0; i < 3000 && sim.G.cap.state != "landed"; i++) Frame(1f / 30); Ok("autopilot lands and the view switches to on-foot", sim.G.cap.state == "landed" && mode == Mode.Eva, $"state={sim.G.cap.state} mode={mode}");
+            var enodes = Sim.OreNodes(fi); sim.G.cap.ex = enodes[0].x + 1.5f; sim.G.cap.ez = enodes[0].z; fi.aeth = fi.max; float ore00 = sim.G.cap.ore, isl00 = fi.aeth;
+            for (int i = 0; i < 100; i++) sim.MineTick(.05f, true); Frame(1f / 60); Ok("hand mining while standing at an ore node yields ore", sim.G.cap.ore > ore00 && fi.aeth < isl00, $"ore={sim.G.cap.ore}");
+            sim.G.cap.ore = 8; sim.CapTakeoff(); for (int i = 0; i < 200 && sim.G.cap.state != "fly"; i++) Frame(1f / 30); Ok("taking off from the island returns to flight view", sim.G.cap.state == "fly" && mode == Mode.Fly);
+            SetMode(Mode.Cmd); Ok("map button shows where the captain is (FLY)", BodyLabel() == "FLY"); ReturnToBody(); Ok("returning to the body re-enters flight", mode == Mode.Fly);
+            sim.G.cap.fuel = Math.Max(sim.G.cap.fuel, 20); sim.CapAutoHome(); for (int i = 0; i < 4000 && sim.G.cap.state != "docked"; i++) Frame(1f / 30);
+            Ok("autopilot home docks and puts the captain on foot beside his ship", sim.G.cap.state == "docked" && mode == Mode.Walk && Mx.Hypot(walk.x - Data.CapPad[0], walk.z - Data.CapPad[1]) < 6.2f, $"state={sim.G.cap.state} mode={mode}");
+            walk.x = Data.StSpot["deposit"][0]; walk.z = Data.StSpot["deposit"][1]; Frame(1f / 60); FindNearby(); Ok("deposit station is in reach", nearDep); float a00 = sim.G.aeth; int tcount = 0; while (sim.G.cap.ore >= 1 && tcount++ < 400) { sim.CapDepositTick(.1f); Frame(1f / 10); }
+            Ok("carried ore is deposited into the Executor's tank", sim.G.cap.ore < 1 && sim.G.aeth > a00 + 30, $"aeth +{sim.G.aeth - a00:F0}");
+            walk.x = Data.StSpot["fuel"][0]; walk.z = Data.StSpot["fuel"][1]; sim.G.cap.fuel = 6; Frame(1f / 60); FindNearby(); for (int i = 0; i < 300; i++) sim.CapRefuelTick(.1f); Ok("fuel station refuels the captain's ship", nearFuelSt && sim.G.cap.fuel > 29);
+            // save while on the island, continue, return to the body
+            sim.G.cap.fuel = 25; sim.CapLaunch(); for (int i = 0; i < 300 && sim.G.cap.state != "fly"; i++) Frame(1f / 30); selIsl = fi; sim.CapAutoGoto(fi); for (int i = 0; i < 3000 && sim.G.cap.state != "landed"; i++) Frame(1f / 30);
+            DoSave(); sim.G.cap.state = "docked"; Ok("continue restores a captain who is standing on an island", ContinueGame() && sim.G.cap.state == "landed" && mode == Mode.Cmd); ReturnToBody(); for (int i = 0; i < 10; i++) Frame(1f / 60); Ok("map button then returns him to the island on foot", mode == Mode.Eva);
+            SetMode(Mode.Cmd); sel = sim.G.ships[0];
             // save / continue
             sim.G.aeth = 777; DoSave(); sim.G.aeth = 1; Ok("continue restores progress", ContinueGame() && MathF.Abs(sim.G.aeth - 777) < .5f && mode == Mode.Cmd);
             // crawl

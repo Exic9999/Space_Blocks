@@ -63,6 +63,7 @@ public static class Interior
             }
             float sx = p[0] < 0 ? p[0] - 4.6f : p[0] + 4.6f; mb.Box(.5f, .9f, .5f, sx, .45f, p[1] - 1, C(0x4a566e)); mb.Box(.2f, .2f, .2f, sx, 1.0f, p[1] - 1, C(0x40e090), 255);
         }
+        for (int s = 0; s < 36; s++) { float a0 = s * MathF.Tau / 36, a1 = (s + 1) * MathF.Tau / 36; Vector3 P(float r, float a) => new(Data.CapPad[0] + MathF.Cos(a) * r, .02f, Data.CapPad[1] + MathF.Sin(a) * r); mb.Quad(P(3.2f, a0), P(3.6f, a0), P(3.6f, a1), P(3.2f, a1), C(0xe0b84a), 255); }
         // aetherite tank frames (liquid drawn dynamically)
         foreach (var t in Walker.Tanks) { mb.CylY(1.9f, 1.9f, .5f, t[0], .25f, t[1], dkc, 18); mb.CylY(1.9f, 1.9f, .5f, t[0], 11.2f, t[1], dkc, 18); }
         // ---- corridor: x -3..3, z -18..-5.9, h 4.5 ----

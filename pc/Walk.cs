@@ -38,6 +38,7 @@ public sealed class Walker
                 foreach (var s in sim.G.ships)
                     if (s.idx % 5 == k && (s.state == "docked" || s.state == "landing" || s.state == "takeoff")) return true;
         }
+        if (Mx.Hypot(nx - Data.CapPad[0], nz - Data.CapPad[1]) < 3.4f && !Away(Data.CapPad[0], Data.CapPad[1]) && sim.G.cap.state is "docked" or "launch" or "dock") return true;
         if (Mx.Hypot(nx, nz + 28) < 2.9f && !Away(0, -28)) return true;
         foreach (var t in Tanks) if (Mx.Hypot(nx - t[0], nz - t[1]) < 2.3f && !Away(t[0], t[1])) return true;
         return false;

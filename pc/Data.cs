@@ -46,6 +46,8 @@ public static class Data
     // hangar pad positions (x,z) and bridge seat spots (x,z)
     public static readonly float[][] Pads = { new[]{-10f,22f}, new[]{10f,22f}, new[]{-10f,10f}, new[]{10f,10f}, new[]{0f,16f} };
     public const float RowZ = -2.5f;
+    public static readonly float[] CapPad = { 9f, 3f }; // the captain's own berth in the hangar
+    public static readonly CrewDef Captain = new() { Name = "Commander Jason", Call = "Executor One", Color = 0xe0b84a, Hull = 0x3f4a5e, Acc = 0xe0b84a, Skin = 0xd9a07a, Bold = 1f };
     // hangar service stations: where the pilot stands, and the tank he faces
     public static readonly Dictionary<string, float[]> StSpot = new() { ["deposit"] = new[] { -11.4f, RowZ }, ["fuel"] = new[] { 11.4f, RowZ }, ["repair"] = new[] { 11.4f, 28f } };
     public static readonly Dictionary<string, float[]> StTank = new() { ["deposit"] = new[] { -14.2f, -1f }, ["fuel"] = new[] { 14.2f, -1f }, ["repair"] = new[] { 14.2f, 28f } };

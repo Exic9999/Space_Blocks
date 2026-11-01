@@ -441,11 +441,11 @@ public sealed class Sim
     static float Wrap(float a) => ((a + MathF.PI) % MathF.Tau + MathF.Tau) % MathF.Tau - MathF.PI;
     public float Bob(Island i) => MathF.Sin(G.t * .5f + i.seed) * 4;
     public float GroundY(Island i, float lx, float lz) => i.h + Bob(i) + Scene.GroundH(i.s, lx, lz);
-    public (float x, float z) LandSpot(Island i) => (i.s * .44f, i.s * .24f);
+    public (float x, float z) LandSpot(Island i) => (-.25f * i.s, .16f * i.s);
     public static List<(float x, float z)> OreNodes(Island i)
     {
         var l = new List<(float, float)>(); float cx = -.25f * i.s, cz = -.1f * i.s, ph = (i.seed % 97) * .1f;
-        for (int k = 0; k < 8; k++) { float a = k * .7854f + ph, r = i.s * (.05f + .045f * (k % 3)); l.Add((cx + MathF.Cos(a) * r, cz + MathF.Sin(a) * r)); }
+        for (int k = 0; k < 8; k++) { float a = MathF.PI / 2 + .6f + k * ((MathF.Tau - 1.2f) / 8), r = i.s * (.2f + .015f * (k % 3)); l.Add((cx + MathF.Cos(a) * r, cz + MathF.Sin(a) * r)); }
         return l;
     }
     public int VisibleNodes(Island i) => Math.Clamp((int)MathF.Ceiling(i.aeth / i.max * 8f - .001f), 0, 8);

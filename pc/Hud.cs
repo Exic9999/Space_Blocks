@@ -55,10 +55,10 @@ public sealed unsafe partial class Game
     void EndCrawl() { if (!crawlActive) return; crawlActive = false; var d = crawlDone; crawlDone = null; d?.Invoke(); }
 
     // ---------------- input ----------------
-    Ship? nearShip, nearNpc; bool nearHelm;
+    Ship? nearShip, nearNpc; bool nearHelm, nearCap, nearDep, nearFuelSt;
     void FindNearby()
     {
-        nearShip = nearNpc = null; nearHelm = Mx.Hypot(walk.x, walk.z + 22) < 3.8f;
+        nearShip = nearNpc = null; nearHelm = Mx.Hypot(walk.x, walk.z + 22) < 3.8f; nearCap = sim.G.cap.state == "docked" && Mx.Hypot(walk.x - Data.CapPad[0], walk.z - Data.CapPad[1]) < 6.2f; nearDep = Mx.Hypot(walk.x - Data.StSpot["deposit"][0], walk.z - Data.StSpot["deposit"][1]) < 3.2f; nearFuelSt = Mx.Hypot(walk.x - Data.StSpot["fuel"][0], walk.z - Data.StSpot["fuel"][1]) < 3.2f;
         foreach (var s in sim.G.ships)
         {
             var p = Data.Pads[s.idx % 5];
@@ -78,8 +78,9 @@ public sealed unsafe partial class Game
         {
             if (crawlActive) EndCrawl(); else if (showSheet) showSheet = false; else if (showMenu) showMenu = false;
             else if (mode == Mode.Walk || mode == Mode.Cabin) { SetMode(mode == Mode.Cabin && cabFrom == Mode.Walk ? Mode.Walk : Mode.Cmd); }
-            else if (mode == Mode.Cmd) showMenu = true;
+            else if (mode is Mode.Cmd or Mode.Fly or Mode.Eva) showMenu = true;
         }
+        sim.InThr = sim.InTurn = sim.InClimb = 0;
         if (mode == Mode.Title || crawlActive || showMenu || showSheet) { dragging = false; return; }
         if (Raylib.IsKeyPressed(KeyboardKey.F5)) { DoSave(); sim.Say("Game saved.", 0x6eeba0); }
         if (Raylib.IsKeyPressed(KeyboardKey.F9)) ContinueGame();
@@ -103,7 +104,7 @@ public sealed unsafe partial class Game
             if (Raylib.IsKeyPressed(KeyboardKey.C)) Order("scout"); if (Raylib.IsKeyPressed(KeyboardKey.G)) Order("auto");
             if (Raylib.IsKeyPressed(KeyboardKey.U)) showSheet = true;
             if (Raylib.IsKeyPressed(KeyboardKey.V) && sel != null) OpenCabin(sel);
-            if (Raylib.IsKeyPressed(KeyboardKey.B)) EnterWalk();
+            if (Raylib.IsKeyPressed(KeyboardKey.B)) ReturnToBody();
             if (Raylib.IsKeyPressed(KeyboardKey.Tab))
             {
                 var f = sim.G.isl.Where(i => i.found).ToList(); if (f.Count > 0) { int ix = selIsl == null ? -1 : f.IndexOf(selIsl); selIsl = f[(ix + 1) % f.Count]; }
@@ -117,6 +118,8 @@ public sealed unsafe partial class Game
             if (Raylib.IsKeyDown(KeyboardKey.W) || Raylib.IsKeyDown(KeyboardKey.Up)) mz -= 1; if (Raylib.IsKeyDown(KeyboardKey.S) || Raylib.IsKeyDown(KeyboardKey.Down)) mz += 1;
             if (Raylib.IsKeyDown(KeyboardKey.A) || Raylib.IsKeyDown(KeyboardKey.Left)) mx -= 1; if (Raylib.IsKeyDown(KeyboardKey.D) || Raylib.IsKeyDown(KeyboardKey.Right)) mx += 1;
             walk.Step(sim, dt, mx, mz); FindNearby();
+            if (Raylib.IsKeyPressed(KeyboardKey.E) && nearCap && nearNpc == null) { BoardCaptain(); }
+            if (Raylib.IsKeyDown(KeyboardKey.E)) { if (nearDep && sim.G.cap.ore >= 1) { if (sim.CapDepositTick(dt)) Play("up"); } if (nearFuelSt && sim.G.cap.state == "docked") sim.CapRefuelTick(dt); }
             if (Raylib.IsKeyPressed(KeyboardKey.E) && nearHelm && nearShip == null && nearNpc == null) UseHelm();
             else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearShip != null) OpenCabin(nearShip); else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearNpc != null) sim.Chat(nearNpc);
             if (Raylib.IsKeyPressed(KeyboardKey.T) && nearNpc != null) sim.Chat(nearNpc);
@@ -127,12 +130,15 @@ public sealed unsafe partial class Game
             if (Raylib.IsKeyPressed(KeyboardKey.Enter)) SetMode(cabFrom == Mode.Walk ? Mode.Walk : Mode.Cmd);
             if (Raylib.IsMouseButtonDown(MouseButton.Left) && !UiOver()) cabAz -= Raylib.GetMouseDelta().X * .008f;
         }
+        else if (mode == Mode.Fly) HandleFlyInput(dt);
+        else if (mode == Mode.Eva) HandleEvaInput(dt);
     }
     public void Pan(float fy, float fxr, float k)
     {
         cam.follow = null; execFollow = false; float sn = MathF.Sin(cam.az), cs = MathF.Cos(cam.az);
         cam.tx = Math.Clamp(cam.tx + (-sn * fy + cs * fxr) * k, 0, Data.W); cam.tz = Math.Clamp(cam.tz + (-cs * fy - sn * fxr) * k, 0, Data.W);
     }
+    void BoardCaptain() { if (sim.CapLaunch()) { capCamInit = false; SetMode(Mode.Fly); } }
     void UseHelm() { selExec = true; execFollow = true; cam.follow = null; cam.dist = 1400; SetMode(Mode.Cmd); sim.Say("Helm: click empty space to set a course, or pick an island and press L.", 0x5adcff); }
     void EnterWalk() { walk.x = 0; walk.z = -22.5f; walk.yaw = 0; walk.pitch = 0; SetMode(Mode.Walk); }
 
@@ -154,7 +160,7 @@ public sealed unsafe partial class Game
             float bx = W - 8 * s; float bw = 84 * s, bh = 32 * s;
             bx -= bw; if (Btn(new Rectangle(bx, 6 * s, bw, bh), "MENU", 15 * s)) showMenu = true;
             bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), "x" + sim.Speed, 15 * s)) sim.Speed = sim.Speed == 1 ? 3 : sim.Speed == 3 ? 6 : 1;
-            bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), mode == Mode.Walk ? "MAP" : "BRIDGE", 15 * s)) { if (mode == Mode.Walk) SetMode(Mode.Cmd); else EnterWalk(); }
+            bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), mode == Mode.Cmd ? BodyLabel() : "MAP", 15 * s)) { if (mode == Mode.Cmd) ReturnToBody(); else SetMode(Mode.Cmd); }
             bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), "SCAN", 15 * s)) { sim.DoScan(); Play("scan"); }
             bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), musicOn ? "MUSIC ON" : "MUSIC", 14 * s, musicOn)) ToggleMusic();
             // log
@@ -163,6 +169,8 @@ public sealed unsafe partial class Game
         if (mode == Mode.Cmd) DrawCmdHud(W, H, s);
         else if (mode == Mode.Walk) DrawWalkHud(W, H, s);
         else if (mode == Mode.Cabin) DrawCabinHud(W, H, s);
+        else if (mode == Mode.Fly) DrawFlyHud(W, H, s);
+        else if (mode == Mode.Eva) DrawEvaHud(W, H, s);
         // talk box
         if (sim.Talk != null && !crawlActive)
         {
@@ -215,6 +223,7 @@ public sealed unsafe partial class Game
         Raylib.DrawRectangleRec(new Rectangle(rx + sim.G.exx * k - 4, ry + sim.G.exy * k - 4, 8, 8), Color.White);
         foreach (var q in G.storms) { Raylib.DrawCircleV(new Vector2(rx + q.x * k, ry + q.y * k), q.r * k, new Color((byte)130, (byte)90, (byte)255, (byte)70)); Raylib.DrawCircleLinesV(new Vector2(rx + q.x * k, ry + q.y * k), q.r * k, new Color((byte)160, (byte)120, (byte)255, (byte)220)); }
         foreach (var sh in G.ships) Raylib.DrawRectangleRec(new Rectangle(rx + sh.x * k - 3, ry + sh.y * k - 3, 6, 6), Rgb(sh.color));
+        Raylib.DrawRectangleRec(new Rectangle(rx + G.cap.x * k - 3, ry + G.cap.y * k - 3, 6, 6), Rgb(0xe0b84a)); DText($"Captain: {G.cap.state}  fuel {(int)G.cap.fuel}/{(int)Sim.CapFuelMax}  ore {(int)G.cap.ore}", W - 330 * s, H - ph + 70 * s, 13 * s, Rgb(0xe0b84a));
         Raylib.DrawRectangleLinesEx(new Rectangle(rx + cam.tx * k - 10, ry + cam.tz * k - 10, 20, 20), 1, new Color((byte)255, (byte)255, (byte)255, (byte)140));
         // off-screen island arrow
         if (selIsl != null && selIsl.found)
@@ -248,6 +257,7 @@ public sealed unsafe partial class Game
         DTextC(walk.Where().ToUpper(), W / 2, 52 * s, 14 * s, Accent);
         Raylib.DrawCircleLinesV(new Vector2(W / 2, H / 2), 3, new Color((byte)200, (byte)230, (byte)255, (byte)150));
         float y = H - 30 * s; var hints = new List<string>();
+        if (nearCap) hints.Add("[E] Board your ship, Executor One"); if (nearDep && sim.G.cap.ore >= 1) hints.Add($"[hold E] Deposit ore ({(int)sim.G.cap.ore} chunks)"); if (nearFuelSt && sim.G.cap.state == "docked" && sim.G.cap.fuel < Sim.CapFuelMax - .01f) hints.Add($"[hold E] Refuel your ship ({(int)sim.G.cap.fuel}/{(int)Sim.CapFuelMax})");
         if (nearHelm) hints.Add("[E] Helm: plot a course"); if (nearNpc != null) hints.Add($"[T] Talk to {nearNpc.name.Split(' ')[0]}"); if (nearShip != null) hints.Add($"[E] Enter {Data.Crew[nearShip.idx].Call}"); hints.Add("[B] Command view     WASD move, mouse look");
         foreach (var h in hints.AsEnumerable().Reverse()) { DTextC(h, W / 2, y, 16 * s, h.StartsWith("[B]") ? Dim : Accent); y -= 24 * s; }
     }

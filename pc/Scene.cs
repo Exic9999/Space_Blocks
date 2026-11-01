@@ -48,7 +48,7 @@ public static class Scene
     }
 
     // ---------- islands ----------
-    public static IslandGfx BuildIsland(int seed, float R)
+    public static IslandGfx BuildIsland(int seed, float R, bool eva = false)
     {
         var r = new Mul32(seed); var mb = new MeshBuilder();
         // rock underside
@@ -89,12 +89,14 @@ public static class Scene
         float wa = r.Next() * 6.283f, wr = R * .93f;
         // trees
         int placed = 0;
-        for (int k = 0; k < 46 * 3 && placed < 46; k++)
+        int NT = eva ? 110 : 46;
+        for (int k = 0; k < NT * 3 && placed < NT; k++)
         {
             float a = r.Next() * 6.283f, d = MathF.Sqrt(r.Next()) * R * .84f, x = MathF.Cos(a) * d, z = MathF.Sin(a) * d;
             if (Mx.Hypot(x + R * .25f, z + R * .1f) < R * .2f) continue;
+            if (Mx.Hypot(x + R * .25f, z - R * .16f) < R * .14f) continue; // keep the captain's landing spot clear
             if (MathF.Abs((((a - wa + 3.1416f) % 6.2832f) + 6.2832f) % 6.2832f - 3.1416f) < .18f && d > R * .7f) continue;
-            float h = R * (.12f + r.Next() * .17f), y = top + Noise3(x * .08f, 0, z * .08f) * R * .02f - R * .02f;
+            float h = eva ? R * (.03f + r.Next() * .035f) : R * (.12f + r.Next() * .17f), y = top + Noise3(x * .08f, 0, z * .08f) * R * .02f - R * .02f;
             mb.CylY(.008f * R * h * .2f, .005f * R * h * .2f, h * .45f, x, y + h * .225f, z, C(0x5a4030), 5);
             var c1 = Hsl(.27f + r.Next() * .1f, .5f, .16f + r.Next() * .1f);
             mb.CylY(h * .31f, 0, h * .62f, x, y + h * .2f + h * .31f, z, c1, 7);
@@ -184,7 +186,7 @@ public static class Scene
     }
     public static ShipGfx BuildShip(int idx, Levels lv)
     {
-        var cd = Data.Crew[idx]; var g = new ShipGfx(); var mb = new MeshBuilder();
+        var cd = idx == 5 ? Data.Captain : Data.Crew[idx]; var g = new ShipGfx(); var mb = new MeshBuilder();
         Color hull = C(cd.Hull), acc = C(cd.Acc), dark = C(0x1b2030), glass = C(0x66e0ff), red = C(0xff5a70);
         void Gl(float x, float y, float z, float s, uint col = 0xffa860) => g.Glows.Add(new GlowDef { Pos = new(x, y, z), Size = s, Col = C(col), Op = .9f });
         void Eng(float r, float x, float y, float z, float len = .9f) { mb.CylZ(r, r * .78f, len, x, y, z, dark, 12); Gl(x, y, z + len / 2 + .2f, r * 4.4f); }
@@ -218,6 +220,12 @@ public static class Scene
             for (int k = 0; k < 28; k++) { float a = k * MathF.Tau / 28; mb.Sphere(.09f, MathF.Cos(a) * 1.5f, MathF.Sin(a) * 1.5f, .4f, C(0x9ff4ff), 1, 1, 1, 255, 3, 5); }
             mb.CylY(.03f, .03f, 1.0f, 0, .9f, .9f, acc, 5); mb.Sphere(.22f, 0, 1.45f, .9f, C(0xffd890), 1, 1, 1, 255, 5, 8); Gl(0, 1.45f, .9f, 2.6f, 0xffc870);
             mb.Box(.05f, .5f, 1.2f, 0, .5f, 2.6f, acc); Eng(.4f, 0, 0, 3.65f, .7f);
+        }
+        else if (idx == 5)
+        {   // Executor One: a small wedge that echoes the carrier, gold-striped, twin engines
+            mb.Extrude(new[] { new Vector2(0, -3.4f), new Vector2(-1.55f, 2.6f), new Vector2(1.55f, 2.6f) }, -.3f, .3f, hull); mb.Extrude(new[] { new Vector2(0, -2.3f), new Vector2(-.95f, 2.1f), new Vector2(.95f, 2.1f) }, .3f, .7f, Col.Mul(hull, 1.15f));
+            mb.Sphere(.5f, 0, .85f, -.7f, glass, 1, .7f, 1.5f, 200, 6, 10); foreach (int s in new[] { -1, 1 }) { mb.Box(.1f, .05f, 4.6f, s * .55f, .72f, .1f, acc); Wing(mb, hull, s, 1.8f, .7f, 1.6f, .9f, .1f, 1.0f, -.15f, .8f); mb.Box(.08f, .5f, 1.1f, s * 1.9f, .15f, 2.3f, acc); }
+            mb.Box(.1f, .9f, 1.2f, 0, 1.0f, 2.0f, acc); Eng(.55f, -.85f, 0, 2.75f, 1.0f); Eng(.55f, .85f, 0, 2.75f, 1.0f);
         }
         else if (idx == 3)
         {
