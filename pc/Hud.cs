@@ -118,10 +118,8 @@ public sealed unsafe partial class Game
             if (Raylib.IsKeyDown(KeyboardKey.W) || Raylib.IsKeyDown(KeyboardKey.Up)) mz -= 1; if (Raylib.IsKeyDown(KeyboardKey.S) || Raylib.IsKeyDown(KeyboardKey.Down)) mz += 1;
             if (Raylib.IsKeyDown(KeyboardKey.A) || Raylib.IsKeyDown(KeyboardKey.Left)) mx -= 1; if (Raylib.IsKeyDown(KeyboardKey.D) || Raylib.IsKeyDown(KeyboardKey.Right)) mx += 1;
             walk.Step(sim, dt, mx, mz); FindNearby();
-            if (Raylib.IsKeyPressed(KeyboardKey.E) && nearCap && nearNpc == null) { BoardCaptain(); }
             if (Raylib.IsKeyDown(KeyboardKey.E)) { if (nearDep && sim.G.cap.ore >= 1) { if (sim.CapDepositTick(dt)) Play("up"); } if (nearFuelSt && sim.G.cap.state == "docked") sim.CapRefuelTick(dt); }
-            if (Raylib.IsKeyPressed(KeyboardKey.E) && nearHelm && nearShip == null && nearNpc == null) UseHelm();
-            else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearShip != null) OpenCabin(nearShip); else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearNpc != null) sim.Chat(nearNpc);
+            if (Raylib.IsKeyPressed(KeyboardKey.E)) UseE();
             if (Raylib.IsKeyPressed(KeyboardKey.T) && nearNpc != null) sim.Chat(nearNpc);
             if (Raylib.IsKeyPressed(KeyboardKey.B)) SetMode(Mode.Cmd);
         }
@@ -138,6 +136,9 @@ public sealed unsafe partial class Game
         cam.follow = null; execFollow = false; float sn = MathF.Sin(cam.az), cs = MathF.Cos(cam.az);
         cam.tx = Math.Clamp(cam.tx + (-sn * fy + cs * fxr) * k, 0, Data.W); cam.tz = Math.Clamp(cam.tz + (-cs * fy - sn * fxr) * k, 0, Data.W);
     }
+    // One E press does exactly one thing, in a fixed priority: board your ship, (service stations are hold-E), enter a pilot's ship, helm, talk.
+    string EAction() => nearCap ? "board" : (nearDep && sim.G.cap.ore >= 1) || (nearFuelSt && sim.G.cap.state == "docked" && sim.G.cap.fuel < Sim.CapFuelMax - .01f) ? "service" : nearShip != null ? "enter" : nearHelm ? "helm" : nearNpc != null ? "talk" : "";
+    void UseE() { switch (EAction()) { case "board": BoardCaptain(); break; case "enter": OpenCabin(nearShip!); break; case "helm": UseHelm(); break; case "talk": sim.Chat(nearNpc!); break; } }
     void BoardCaptain() { if (sim.CapLaunch()) { capCamInit = false; SetMode(Mode.Fly); } }
     void UseHelm() { selExec = true; execFollow = true; cam.follow = null; cam.dist = 1400; SetMode(Mode.Cmd); sim.Say("Helm: click empty space to set a course, or pick an island and press L.", 0x5adcff); }
     void EnterWalk() { walk.x = 0; walk.z = -22.5f; walk.yaw = 0; walk.pitch = 0; SetMode(Mode.Walk); }
@@ -257,8 +258,8 @@ public sealed unsafe partial class Game
         DTextC(walk.Where().ToUpper(), W / 2, 52 * s, 14 * s, Accent);
         Raylib.DrawCircleLinesV(new Vector2(W / 2, H / 2), 3, new Color((byte)200, (byte)230, (byte)255, (byte)150));
         float y = H - 30 * s; var hints = new List<string>();
-        if (nearCap) hints.Add("[E] Board your ship, Executor One"); if (nearDep && sim.G.cap.ore >= 1) hints.Add($"[hold E] Deposit ore ({(int)sim.G.cap.ore} chunks)"); if (nearFuelSt && sim.G.cap.state == "docked" && sim.G.cap.fuel < Sim.CapFuelMax - .01f) hints.Add($"[hold E] Refuel your ship ({(int)sim.G.cap.fuel}/{(int)Sim.CapFuelMax})");
-        if (nearHelm) hints.Add("[E] Helm: plot a course"); if (nearNpc != null) hints.Add($"[T] Talk to {nearNpc.name.Split(' ')[0]}"); if (nearShip != null) hints.Add($"[E] Enter {Data.Crew[nearShip.idx].Call}"); hints.Add("[B] Command view     WASD move, mouse look");
+        if (EAction() == "board") hints.Add("[E] Board your ship, Executor One"); if (nearDep && sim.G.cap.ore >= 1) hints.Add($"[hold E] Deposit ore ({(int)sim.G.cap.ore} chunks)"); if (nearFuelSt && sim.G.cap.state == "docked" && sim.G.cap.fuel < Sim.CapFuelMax - .01f) hints.Add($"[hold E] Refuel your ship ({(int)sim.G.cap.fuel}/{(int)Sim.CapFuelMax})");
+        if (EAction() == "helm") hints.Add("[E] Helm: plot a course"); if (nearNpc != null) hints.Add($"[T] Talk to {nearNpc.name.Split(' ')[0]}"); if (EAction() == "enter") hints.Add($"[E] Enter {Data.Crew[nearShip.idx].Call}"); hints.Add("[B] Command view     WASD move, mouse look");
         foreach (var h in hints.AsEnumerable().Reverse()) { DTextC(h, W / 2, y, 16 * s, h.StartsWith("[B]") ? Dim : Accent); y -= 24 * s; }
     }
     void DrawSheet(float W, float H, float s)

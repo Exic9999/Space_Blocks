@@ -155,7 +155,10 @@ public sealed unsafe partial class Game
             // ---- captain: board in the hangar, fly, land, mine by hand, come home, deposit ----
             Inject = false; sim.G.aeth = 400; foreach (var s3 in sim.G.ships) sim.GiveOrder(s3, "hold"); sim.G.cap.fuel = Sim.CapFuelMax; SetMode(Mode.Cmd); EnterWalk(); walk.x = Data.CapPad[0] - 4.5f; walk.z = Data.CapPad[1]; Frame(1f / 60); FindNearby();
             Ok("captain's ship is parked in the hangar and can be boarded", nearCap && sim.G.cap.state == "docked");
-            BoardCaptain(); Ok("boarding launches the ship and switches to flight view", mode == Mode.Fly && sim.G.cap.state == "launch");
+            // crowded spawn point: a docked pilot ship in reach AND a pilot walking right past — E must still board the captain's ship, once
+            sim.AddShip(3); walk.x = 5.5f; walk.z = 6; var walker0 = sim.G.ships[0]; walker0.state = "docked"; walker0.ph = "idle"; walker0.idle = 9999; walker0.loc = "seat"; walker0.px = 6; walker0.pz = 6; walker0.path.Clear(); Frame(1f / 60); FindNearby();
+            Ok("crowded spawn: board has priority over cabin and chat", nearCap && nearShip != null && nearNpc != null && EAction() == "board", EAction());
+            UseE(); Ok("one E press boards the captain's ship (and only that)", mode == Mode.Fly && sim.G.cap.state == "launch" && mode != Mode.Cabin);
             for (int i = 0; i < 400 && sim.G.cap.state != "fly"; i++) Frame(1f / 30); Ok("launch animation ends in free flight", sim.G.cap.state == "fly" && mode == Mode.Fly);
             sim.InThr = 0; var fi = sim.G.isl[0]; fi.found = true; selIsl = fi; sim.CapAutoGoto(fi);
             for (int i = 0; i < 3000 && sim.G.cap.state != "landed"; i++) Frame(1f / 30); Ok("autopilot lands and the view switches to on-foot", sim.G.cap.state == "landed" && mode == Mode.Eva, $"state={sim.G.cap.state} mode={mode}");

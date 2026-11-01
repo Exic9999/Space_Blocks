@@ -82,7 +82,7 @@ refuse to sail below its reserve.
 | Action | Input |
 |---|---|
 | Throttle / turn / climb / descend | W S / A D / Space / Ctrl |
-| Choose a target island | Tab |
+| Choose a target island | Tab (or pick one on the map first, then press B to return to the cockpit) |
 | Autopilot to target (lands automatically) / home (docks automatically) / cancel | G / R / X |
 | Land on an island or dock with the Executor | F when the prompt shows |
 | Map | N |
