@@ -34,8 +34,16 @@ public sealed class Ship
     public bool scout; public int lastScout = -1; public bool inStorm, warned, walking;
 }
 
+public sealed class Captain
+{
+    public string state = "docked"; // docked, launch, fly, dock, land, landed, lift
+    public float x, y, alt = 20, ang = -MathF.PI / 2, speed, fuel = 30, hull = 40, lt, thr, sx, sy, salt, ex, ez, ore, mineT, depAt; // ex,ez: on-foot position local to the island
+    public int island = -1, target = -1; public string auto = ""; public bool lowWarned;
+}
+
 public sealed class GameState
 {
+    public Captain cap = new();
     public float t, aeth = 80, delivered;
     public int upSensors, upQuarters;
     public List<Ship> ships = new();
@@ -398,6 +406,7 @@ public sealed class Sim
         }
         foreach (var q in G.storms) { q.age += dt; q.x += q.vx * dt; q.y += q.vy * dt; }
         G.storms.RemoveAll(q => q.age >= q.life);
+        CapStep(dt);
         StoryStep(dt);
         foreach (var l in Logs) l.t -= dt; Logs.RemoveAll(l => l.t <= 0);
         if (Talk != null) { Talk.t -= dt; if (Talk.t <= 0) Talk = null; }
@@ -424,6 +433,145 @@ public sealed class Sim
         float r = 700 + 260 * G.upSensors; int n = 0;
         foreach (var i in G.isl) if (!i.found && Mx.Hypot(i.x - G.exx, i.y - G.exy) < r) { Discover(i, null); n++; }
         if (n == 0) Say("Scan complete. Nothing new in range."); ScanFx = 1.4f;
+    }
+
+    // ---------------- the captain's own ship ----------------
+    public const float CapMax = 160, CapFuelMax = 30, ChunkVal = 5; public const int CapCarry = 12;
+    public float InThr, InTurn, InClimb; public bool Piloted; // player input, set by the game each frame
+    static float Wrap(float a) => ((a + MathF.PI) % MathF.Tau + MathF.Tau) % MathF.Tau - MathF.PI;
+    public float Bob(Island i) => MathF.Sin(G.t * .5f + i.seed) * 4;
+    public float GroundY(Island i, float lx, float lz) => i.h + Bob(i) + Scene.GroundH(i.s, lx, lz);
+    public (float x, float z) LandSpot(Island i) => (i.s * .44f, i.s * .24f);
+    public static List<(float x, float z)> OreNodes(Island i)
+    {
+        var l = new List<(float, float)>(); float cx = -.25f * i.s, cz = -.1f * i.s, ph = (i.seed % 97) * .1f;
+        for (int k = 0; k < 8; k++) { float a = k * .7854f + ph, r = i.s * (.05f + .045f * (k % 3)); l.Add((cx + MathF.Cos(a) * r, cz + MathF.Sin(a) * r)); }
+        return l;
+    }
+    public int VisibleNodes(Island i) => Math.Clamp((int)MathF.Ceiling(i.aeth / i.max * 8f - .001f), 0, 8);
+    public int NearestNode(Island i, float ex, float ez, float reach = 3.6f)
+    {
+        var nodes = OreNodes(i); int vis = VisibleNodes(i), best = -1; float bd = reach;
+        for (int k = 0; k < vis; k++) { float d = Mx.Hypot(nodes[k].x - ex, nodes[k].z - ez); if (d < bd) { bd = d; best = k; } }
+        return best;
+    }
+    public bool CapLaunch()
+    {
+        var c = G.cap; if (c.state != "docked") return false;
+        if (c.fuel < 3) { Say("The captain's ship needs fuel: fill it at the fuel station.", C_WARN); return false; }
+        c.state = "launch"; c.lt = 0; c.auto = ""; c.thr = 0; Say("Captain's ship launching.", C_CYAN); return true;
+    }
+    public bool CapRefuelTick(float dt)
+    {
+        var c = G.cap; if (c.state != "docked" || c.fuel >= CapFuelMax - .01f) return false;
+        float need = MathF.Min(CapFuelMax - c.fuel, dt * 6), cost = need * .4f; if (G.aeth < cost) return false; G.aeth -= cost; c.fuel += need; return true;
+    }
+    public Island? CapCanLand()
+    {
+        var c = G.cap; if (c.state != "fly") return null; Island? best = null; float bd = float.MaxValue;
+        foreach (var i in G.isl)
+        {
+            float d = Mx.Hypot(i.x - c.x, i.y - c.y); if (d > i.s * .85f) continue;
+            if (c.alt - (i.h + Bob(i) + .12f * i.s) > 85) continue; if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+    }
+    public bool CapLand(Island? i = null)
+    {
+        var c = G.cap; i ??= CapCanLand(); if (i == null || c.state != "fly") return false;
+        c.state = "land"; c.lt = 0; c.island = i.id; c.sx = c.x; c.sy = c.y; c.salt = c.alt; c.auto = ""; c.thr = 0; if (!i.found) Discover(i, null); Say("Captain's ship landing on " + i.name + ".", C_CYAN); return true;
+    }
+    public bool CapTakeoff()
+    {
+        var c = G.cap; if (c.state != "landed") return false;
+        c.state = "lift"; c.lt = 0; c.sx = c.x; c.sy = c.y; c.salt = c.alt; Say("Captain's ship lifting off.", C_CYAN); return true;
+    }
+    public bool CapCanDock() { var c = G.cap; if (c.state != "fly") return false; var m = ExPt(0, 330); return Mx.Hypot(c.x - m.x, c.y - m.y) < 150 && c.alt < 110; }
+    public bool CapDock() { var c = G.cap; if (!CapCanDock()) return false; c.state = "dock"; c.lt = 0; c.auto = ""; c.thr = 0; Say("Captain's ship docking.", C_CYAN); return true; }
+    public void CapAutoGoto(Island i) { var c = G.cap; if (c.state != "fly") return; c.target = i.id; c.auto = "goto"; Say("Autopilot: flying to " + i.name + ".", C_CYAN); }
+    public void CapAutoHome() { var c = G.cap; if (c.state != "fly") return; c.auto = "home"; Say("Autopilot: returning to the Executor.", C_CYAN); }
+    public void CapAutoOff() { if (G.cap.auto != "") { G.cap.auto = ""; Say("Autopilot disengaged.", C_CYAN); } }
+    // Hand mining: hold near a visible ore node for 1.5 s to take a 5-unit chunk from the island.
+    public bool MineTick(float dt, bool holding)
+    {
+        var c = G.cap; if (c.state != "landed") { c.mineT = 0; return false; }
+        var i = G.isl[c.island]; int n = NearestNode(i, c.ex, c.ez);
+        if (!holding || n < 0 || c.ore >= CapCarry || i.aeth < ChunkVal) { c.mineT = 0; return false; }
+        c.mineT += dt; if (c.mineT >= 1.5f) { c.mineT = 0; i.aeth -= ChunkVal; c.ore += 1; if (c.ore >= CapCarry) Say("Your pack is full. Fly it back to the Executor.", C_WARN); }
+        return true;
+    }
+    // Drop carried ore chunks into the Executor's Aetherite tank (call while standing at the deposit station).
+    public bool CapDepositTick(float dt)
+    {
+        var c = G.cap; if (c.ore < 1 || G.t < c.depAt) return false;
+        c.depAt = G.t + .3f; c.ore -= 1; G.aeth += ChunkVal; G.delivered += ChunkVal; return true;
+    }
+    void CapStep(float dt)
+    {
+        var c = G.cap;
+        if (float.IsNaN(c.x) || float.IsNaN(c.y) || float.IsNaN(c.alt)) { var hp0 = ExPt(0, 190); c.x = hp0.x; c.y = hp0.y; c.alt = 20; c.state = "docked"; c.speed = 0; }
+        switch (c.state)
+        {
+            case "docked": { var hp = ExPt(0, 190); c.x = hp.x; c.y = hp.y; c.speed = 0; c.alt = 20; c.thr = 0; break; }
+            case "launch":
+                c.lt += dt / 5; { var hp = ExPt(0, 190); c.x = hp.x; c.y = hp.y; }
+                if (c.lt >= 1) { var mp = ExPt(0, 330); c.x = mp.x; c.y = mp.y; c.ang = MathF.Atan2(MathF.Cos(G.exHead), MathF.Sin(G.exHead)); c.speed = 60; c.thr = .35f; c.alt = 20; c.state = "fly"; c.lt = 0; }
+                break;
+            case "dock":
+                c.lt += dt / 6; { var hp = ExPt(0, 300); c.x = hp.x; c.y = hp.y; }
+                if (c.lt >= 1) { c.state = "docked"; c.lt = 0; c.speed = 0; c.thr = 0; c.alt = 20; Say("Captain's ship docked in the hangar.", C_GOOD); }
+                break;
+            case "land":
+                {
+                    var i = G.isl[c.island]; var (lx, lz) = LandSpot(i); c.lt += dt / 3; float k = MathF.Min(1, c.lt); k = k * k * (3 - 2 * k);
+                    float tx = i.x + lx, ty = i.y + lz, ta = GroundY(i, lx, lz) + .5f;
+                    c.x = c.sx + (tx - c.sx) * k; c.y = c.sy + (ty - c.sy) * k; c.alt = c.salt + (ta - c.salt) * k; c.speed = 0;
+                    if (c.lt >= 1) { c.state = "landed"; c.ang = MathF.PI; c.ex = lx - 4.5f; c.ez = lz + 1.5f; c.mineT = 0; Say("Landed on " + i.name + ". Hold E near the glowing ore to mine it.", C_GOOD); }
+                    break;
+                }
+            case "landed":
+                { var i = G.isl[c.island]; var (lx, lz) = LandSpot(i); c.x = i.x + lx; c.y = i.y + lz; c.alt = GroundY(i, lx, lz) + .5f; c.speed = 0; break; }
+            case "lift":
+                {
+                    var i = G.isl[c.island]; c.lt += dt / 2.5f; float k = MathF.Min(1, c.lt); k = k * k * (3 - 2 * k); var (lx, lz) = LandSpot(i);
+                    c.x = i.x + lx; c.y = i.y + lz; c.alt = c.salt + (GroundY(i, lx, lz) + 45 - c.salt) * k;
+                    if (c.lt >= 1) { c.state = "fly"; c.lt = 0; c.speed = 0; c.thr = 0; c.ang = MathF.PI; }
+                    break;
+                }
+            case "fly": CapFly(dt); break;
+        }
+    }
+    void CapFly(float dt)
+    {
+        var c = G.cap; float turn = 0, climb = 0, wantAlt = float.NaN;
+        if (c.auto == "goto")
+        {
+            var i = G.isl[c.target]; float d = Mx.Hypot(i.x - c.x, i.y - c.y), want = MathF.Atan2(i.y - c.y, i.x - c.x);
+            turn = Math.Clamp(Wrap(want - c.ang) * 2.5f, -1, 1); c.thr = d > 450 ? .9f : Math.Clamp(d / 450f, .18f, .9f);
+            float top = i.h + Bob(i) + .12f * i.s; wantAlt = d > i.s * 1.3f + 150 ? MathF.Max(110, top + 70) : top + 40;
+            if (d < i.s * .55f && c.alt - top < 75) { CapLand(i); return; }
+        }
+        else if (c.auto == "home")
+        {
+            var far = ExPt(0, 430); var mouth = ExPt(0, 330); float dFar = Mx.Hypot(far.x - c.x, far.y - c.y), dM = Mx.Hypot(mouth.x - c.x, mouth.y - c.y);
+            var tgt = dFar > 220 && dM > 150 ? far : mouth; float want = MathF.Atan2(tgt.y - c.y, tgt.x - c.x);
+            turn = Math.Clamp(Wrap(want - c.ang) * 2.5f, -1, 1); c.thr = dM > 400 ? .9f : Math.Clamp(dM / 400f, .2f, .9f); wantAlt = dM > 300 ? 120 : 25;
+            if (CapCanDock()) { CapDock(); return; }
+        }
+        else if (Piloted) { turn = InTurn; climb = InClimb; c.thr = Math.Clamp(c.thr + InThr * .6f * dt, 0, 1); }
+        else c.thr = MathF.Max(0, c.thr - .5f * dt); // hands off: slow to a hover
+        if (!float.IsNaN(wantAlt)) climb = Math.Clamp((wantAlt - c.alt) / 40f, -1, 1);
+        float vmax = c.fuel > 0 ? CapMax : 35;
+        c.ang += turn * 1.7f * (1.15f - .6f * c.speed / CapMax) * dt;
+        float target = c.thr * vmax; c.speed += Math.Clamp(target - c.speed, -140 * dt, 90 * dt);
+        c.alt = Math.Clamp(c.alt + climb * 70 * dt, 15, 420);
+        float step = c.speed * dt; c.x = Math.Clamp(c.x + MathF.Cos(c.ang) * step, 60, Data.W - 60); c.y = Math.Clamp(c.y + MathF.Sin(c.ang) * step, 60, Data.W - 60);
+        c.fuel = MathF.Max(0, c.fuel - step * .0085f);
+        float home = Mx.Hypot(c.x - G.exx, c.y - G.exy) * .0085f * 1.25f + 2;
+        if (c.fuel < home && !c.lowWarned) { c.lowWarned = true; Say("Captain's ship fuel is low. Head home (R).", C_WARN); }
+        if (c.fuel >= home + 3) c.lowWarned = false;
+        float sens = 300 + 130 * G.upSensors; foreach (var i in G.isl) if (!i.found && Mx.Hypot(i.x - c.x, i.y - c.y) < sens * .8f) Discover(i, null);
+        foreach (var i in G.isl) { float d = Mx.Hypot(i.x - c.x, i.y - c.y); if (d < i.s * .9f) { float floor = i.h + Bob(i) + .12f * i.s + 8; if (c.alt < floor && c.auto != "goto") c.alt = floor; } }
     }
 
     // ---------------- upgrades ----------------
@@ -499,6 +647,12 @@ public sealed class Sim
             if (s.ph == "idle") s.loc = "seat";
             if (s.state == "docked" && s.ph == "aboard") { var pp = Data.Pads[s.idx % 5]; s.px = pp[0] <= 0 ? pp[0] - 3.7f : pp[0] + 3.7f; s.pz = pp[1]; s.loc = "pad"; }
         }
+        var cp = G.cap; // captain animation states cannot resume mid-way: settle them
+        if (cp.state is "launch" or "dock") { cp.state = "docked"; cp.lt = 0; }
+        else if (cp.state == "land") { cp.island = Math.Clamp(cp.island, 0, G.isl.Count - 1); var li = G.isl[cp.island]; var ls = LandSpot(li); cp.state = "landed"; cp.lt = 0; cp.ex = ls.x - 4.5f; cp.ez = ls.z + 1.5f; }
+        else if (cp.state == "lift") { cp.state = "fly"; cp.lt = 0; cp.speed = 0; cp.thr = 0; }
+        if (cp.state == "landed" && (cp.island < 0 || cp.island >= G.isl.Count)) cp.state = "docked";
+        cp.auto = cp.auto == "goto" && (cp.target < 0 || cp.target >= G.isl.Count) ? "" : cp.auto;
         return Math.Clamp(d.sel, 0, G.ships.Count - 1);
     }
     public sealed class SaveBlob { public GameState? G; public int sel; }

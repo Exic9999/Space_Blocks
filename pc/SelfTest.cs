@@ -109,6 +109,68 @@ public static class SelfTest
         var leg3 = new Sim { Rng = new Random(9) }; leg3.Deserialize(lsj); foreach (var s in leg3.G.ships) leg3.GiveOrder(s, "auto"); for (int i = 0; i < 3000; i++) leg3.Step(.1f);
         Ok("legacy-phase save loads and the crew launches", leg3.G.launches >= 1 && leg3.G.ships.All(s => s.ph is "walk" or "unload" or "fuel" or "repair" or "idle" or "aboard" || s.state != "docked"));
 
+        // ---- captain's ship: launch, fly, autopilot, land, hand-mine, return, dock, deposit ----
+        var cs = new Sim { Rng = new Random(61) }; cs.NewGame(2024); foreach (var s in cs.G.ships) cs.GiveOrder(s, "hold"); cs.G.aeth = 300; var cc = cs.G.cap;
+        Ok("captain's ship starts docked with a full tank", cc.state == "docked" && cc.fuel >= Sim.CapFuelMax - .01f);
+        Ok("launch starts the takeoff", cs.CapLaunch() && cc.state == "launch");
+        for (int i = 0; i < 70 && cc.state == "launch"; i++) cs.Step(.1f);
+        Ok("takeoff ends in free flight at the hangar mouth", cc.state == "fly" && Mx.Hypot(cc.x - cs.ExPt(0, 330).x, cc.y - cs.ExPt(0, 330).y) < 3, cc.state);
+        float fx0 = cc.x, fy0 = cc.y, fuel0 = cc.fuel; cs.Piloted = true; cs.InThr = 1;
+        for (int i = 0; i < 60; i++) cs.Step(.1f); cs.InThr = 0; cs.InTurn = 1; for (int i = 0; i < 20; i++) cs.Step(.1f); cs.InTurn = 0;
+        float flown = Mx.Hypot(cc.x - fx0, cc.y - fy0); cs.Piloted = false;
+        Ok("piloted flight moves the ship and burns fuel", flown > 150 && cc.fuel < fuel0 - 1, $"flown={flown:F0} fuel={cc.fuel:F1}");
+        Ok("fuel burn is about 0.0085 per unit flown", MathF.Abs((fuel0 - cc.fuel) - flown * .0085f) < flown * .0085f * .6f + .5f, $"burn={fuel0 - cc.fuel:F2} expected~{flown * .0085f:F2}");
+        for (int i = 0; i < 100; i++) cs.Step(.1f); Ok("hands-off the ship slows to a hover", cc.speed < 5, "speed=" + cc.speed);
+        var tgtI = cs.G.isl[0]; tgtI.found = true; cs.CapAutoGoto(tgtI);
+        for (int i = 0; i < 1500 && cc.state != "landed"; i++) cs.Step(.1f);
+        Ok("autopilot flies to the locked island and lands", cc.state == "landed" && cc.island == tgtI.id && cc.fuel > 0, $"state={cc.state} fuel={cc.fuel:F1}");
+        var (lsx, lsz) = cs.LandSpot(tgtI); Ok("landed ship sits on the island landing spot", Mx.Hypot(cc.x - (tgtI.x + lsx), cc.y - (tgtI.y + lsz)) < .5f);
+        // hand mining
+        var nodes = Sim.OreNodes(tgtI); cc.ex = nodes[0].x + 1.2f; cc.ez = nodes[0].z; tgtI.aeth = tgtI.max; float aeth0 = tgtI.aeth, ore0 = cc.ore;
+        for (int i = 0; i < 14; i++) cs.MineTick(.1f, true); Ok("holding E for under 1.5 s mines nothing yet", cc.ore == ore0);
+        for (int i = 0; i < 4; i++) cs.MineTick(.1f, true); Ok("one chunk mined after 1.5 s: ore +1, island -5", cc.ore == ore0 + 1 && MathF.Abs(tgtI.aeth - (aeth0 - 5)) < .01f, $"ore={cc.ore} isl={tgtI.aeth}");
+        cc.ex += 40; for (int i = 0; i < 40; i++) cs.MineTick(.1f, true); Ok("nothing to mine away from the nodes", cc.ore == ore0 + 1);
+        cc.ex = nodes[0].x + 1.2f; for (int i = 0; i < 1000; i++) cs.MineTick(.1f, true); Ok("pack caps at 12 chunks", cc.ore == Sim.CapCarry, "ore=" + cc.ore);
+        tgtI.aeth = 3; cc.ore = 0; for (int i = 0; i < 40; i++) cs.MineTick(.1f, true); Ok("depleted island yields no ore", cc.ore == 0);
+        tgtI.aeth = tgtI.max; cc.ore = 12;
+        Ok("visible ore nodes shrink with the island's Aetherite", cs.VisibleNodes(tgtI) == 8 && (tgtI.aeth = tgtI.max * .26f) > 0 && cs.VisibleNodes(tgtI) == 3);
+        tgtI.aeth = tgtI.max;
+        // back home: lift off, autopilot home, dock, deposit
+        Ok("takeoff from the island", cs.CapTakeoff() && cc.state == "lift"); for (int i = 0; i < 40 && cc.state == "lift"; i++) cs.Step(.1f); Ok("lift-off ends in flight", cc.state == "fly");
+        if (cc.fuel < 25) cc.fuel = 25; cs.SailTo(cs.G.exx + 300, cs.G.exy - 300); cs.CapAutoHome();
+        for (int i = 0; i < 4000 && cc.state != "docked"; i++) cs.Step(.1f);
+        Ok("autopilot home finds the (moving) Executor and docks, ore intact", cc.state == "docked" && cc.ore == 12, $"state={cc.state} ore={cc.ore} d={Mx.Hypot(cc.x - cs.G.exx, cc.y - cs.G.exy):F0}");
+        float aeBefore = cs.G.aeth, delBefore = cs.G.delivered; int steps2 = 0; while (cc.ore >= 1 && steps2++ < 200) { cs.CapDepositTick(.1f); cs.Step(.1f); }
+        Ok("depositing 12 chunks adds 60 Aetherite and counts as delivered", cc.ore == 0 && cs.G.aeth - aeBefore > 55 && cs.G.delivered - delBefore > 59.9f, $"aeth +{cs.G.aeth - aeBefore:F1} delivered +{cs.G.delivered - delBefore:F1}");
+        cc.fuel = 5; float fa = cs.G.aeth; for (int i = 0; i < 300; i++) cs.CapRefuelTick(.1f);
+        Ok("refuelling at the station fills the tank and costs Aetherite", cc.fuel >= Sim.CapFuelMax - .01f && cs.G.aeth < fa - 5, $"fuel={cc.fuel} aeth {fa}->{cs.G.aeth}");
+        // out of fuel: crawl, never stuck
+        cs.CapLaunch(); for (int i = 0; i < 70 && cc.state == "launch"; i++) cs.Step(.1f); cc.fuel = 0; cs.Piloted = true; cs.InThr = 1; for (int i = 0; i < 80; i++) cs.Step(.1f); cs.Piloted = false;
+        Ok("with an empty tank the ship still crawls home (speed capped)", cc.speed <= 36 && cc.speed > 5, "speed=" + cc.speed);
+        // save mid-flight, load, mid-landing normalisation
+        cc.state = "fly"; cc.x = 1300; cc.y = 900; cs.Step(.1f); string fj = cs.Serialize(0); var fl = new Sim(); fl.Deserialize(fj);
+        Ok("saving mid-flight restores the flight", fl.G.cap.state == "fly" && MathF.Abs(fl.G.cap.x - cc.x) < 1 && MathF.Abs(fl.G.cap.fuel - cc.fuel) < .01f);
+        cc.state = "land"; cc.island = 2; cc.lt = .4f; string lj2 = cs.Serialize(0); var fl2 = new Sim(); fl2.Deserialize(lj2); for (int i = 0; i < 20; i++) fl2.Step(.1f);
+        Ok("saving mid-landing resumes as landed", fl2.G.cap.state == "landed" && fl2.G.cap.island == 2);
+        cc.state = "dock"; string dj = cs.Serialize(0); var fl3 = new Sim(); fl3.Deserialize(dj); Ok("saving mid-dock resumes docked", fl3.G.cap.state == "docked");
+        // a long random-autopilot soak: no NaN, never stuck mid-state
+        var csk = new Sim { Rng = new Random(77) }; csk.NewGame(555); foreach (var s in csk.G.ships) csk.GiveOrder(s, "auto"); csk.G.aeth = 400; var ck = csk.G.cap; bool capBad = false; float stateT = 0; string lastSt = ck.state; float maxStateT = 0; var rr = new Random(5); int trips = 0;
+        for (int k = 0; k < 40000; k++)
+        {
+            csk.Step(.1f); if (ck.state != lastSt) { lastSt = ck.state; stateT = 0; } else stateT += .1f;
+            if (float.IsNaN(ck.x) || float.IsNaN(ck.y) || float.IsNaN(ck.alt) || ck.fuel < 0 || ck.ore < 0 || ck.ore > 12.01f) capBad = true;
+            if (ck.state is "launch" or "dock" or "land" or "lift") maxStateT = MathF.Max(maxStateT, stateT);
+            if (k % 40 == 0) foreach (var s in csk.G.ships) if (s.order == null && !s.indep) csk.GiveOrder(s, "auto");
+            if (ck.state == "docked" && k % 20 == 0) { ck.fuel = Sim.CapFuelMax; csk.CapLaunch(); }
+            else if (ck.state == "fly" && ck.auto == "" && k % 10 == 0) { var ti = csk.G.isl[rr.Next(csk.G.isl.Count)]; ti.found = true; csk.CapAutoGoto(ti); }
+            else if (ck.state == "landed" && k % 30 == 0) { ck.ore = 12; csk.CapTakeoff(); trips++; }
+            else if (ck.state == "fly" && ck.auto == "goto" && k % 400 == 0) csk.CapAutoHome();
+            if (k % 500 == 0 && !csk.G.exMoving && csk.G.aeth > 200) csk.SailTo(csk.G.exx + (rr.Next(2) * 2 - 1) * 400, csk.G.exy + (rr.Next(2) * 2 - 1) * 400);
+        }
+        Ok("captain soak: no NaN, fuel and ore always in range", !capBad);
+        Ok("captain soak: animations always finish (< 10 s each)", maxStateT < 10, "max=" + maxStateT);
+        Ok("captain soak: made several island trips", trips >= 3, "trips=" + trips);
+
         // soak at dt=0.6 for 90 game minutes
         var soak = new Sim { Rng = new Random(99) }; soak.NewGame(777);
         foreach (var s in soak.G.ships) soak.GiveOrder(s, "auto");

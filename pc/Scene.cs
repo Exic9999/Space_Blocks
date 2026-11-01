@@ -18,7 +18,8 @@ public sealed class ShipGfx { public Mesh Mesh; public List<GlowDef> Glows = new
 
 public static class Scene
 {
-    static float Noise3(float x, float y, float z) => MathF.Sin(x * 1.3f + y * .7f) * MathF.Cos(z * 1.1f - y * .9f) + .5f * MathF.Sin(x * 2.9f + z * 2.3f + y * 1.7f);
+    public static float GroundH(float R, float lx, float lz) => .12f * R + Noise3(lx * .08f, 0, lz * .08f) * .025f * R;
+    public static float Noise3(float x, float y, float z) => MathF.Sin(x * 1.3f + y * .7f) * MathF.Cos(z * 1.1f - y * .9f) + .5f * MathF.Sin(x * 2.9f + z * 2.3f + y * 1.7f);
     public static Color Hsl(float h, float s, float l)
     {
         h = ((h % 1f) + 1f) % 1f; l = Math.Clamp(l, 0, 1); s = Math.Clamp(s, 0, 1);
