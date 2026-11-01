@@ -36,3 +36,12 @@ Ideas not done: combat/enemies, ship-to-ship trading, sfx beyond simple synth.
 `.venv\Scripts\python.exe -m pip install pygame-ce numpy playwright` and `.venv\Scripts\python.exe -m playwright install chromium`.
 Run the game with `.venv\Scripts\python.exe main.py` (`run.sh` assumes `.venv/bin`). Headless tests: set `SDL_VIDEODRIVER=dummy` and `SDL_AUDIODRIVER=dummy`.
 All suites (sim_test, smoke, soak, web3d) passed on Windows.
+
+## Native Windows port of the 3D game (started 2026-11-01) — RESUME HERE
+**Goal (user request):** turn `mobile3d/index.html` (Three.js, ~956 lines) into a very efficient native Windows PC game; language of my choice.
+**Status:** orientation only — NO port code written yet. Last commit before this: df3d9a6.
+**Findings so far**
+- Source of truth for gameplay: `mobile3d/index.html` lines ~80-285 (crew/lore, story beats, newGame/step sim, orders, upgrades) — pure logic, easy to port. Lines ~287-580+ are Three.js rendering (islands, Executor wedge, 5 ship designs, cabins, hangar/corridor/bridge interiors, storms); remaining ~580-956 (interiors, walk mode, input, HUD, save) not yet read.
+- Machine toolchains (checked): no rustc/cargo/gcc/cl/dotnet/go/node on PATH. Python 3.12 + `.venv` exists (pygame-ce, numpy, playwright). winget works (`winget install ...`).
+- Existing Python 2D game (world.py, npc_ai.py etc.) is a separate sim; the 3D web game has its own JS sim (do not mix).
+**Next steps:** (1) decide language/engine (candidates: C# .NET + Raylib-cs, or Rust + macroquad/wgpu; weigh toolchain install cost on this machine), (2) install toolchain, (3) port sim + save format first with a headless test mirroring tests/web3d, (4) port rendering/HUD/walk mode, (5) benchmark frame time vs browser build, (6) update this section + commit.
