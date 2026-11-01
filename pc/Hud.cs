@@ -174,10 +174,12 @@ public sealed unsafe partial class Game
         else if (mode == Mode.Eva) DrawEvaHud(W, H, s);
         // talk box
         if (sim.Talk != null && !crawlActive)
-        {
-            var tk = sim.Talk; float bw = Math.Min(560 * s, W - 40 * s); var lines = Wrap(tk.text, bw - 28 * s, 16 * s); float bh = (lines.Count + 1) * 21 * s + 18 * s;
-            var r = new Rectangle((W - bw) / 2, H * .3f, bw, bh); Box(r, new Color((byte)11, (byte)18, (byte)36, (byte)240));
-            DText($"{tk.name}  \"{tk.call}\"", r.X + 14 * s, r.Y + 9 * s, 16 * s, Rgb(tk.color)); float ty = r.Y + 9 * s + 24 * s; foreach (var ln in lines) { DText(ln, r.X + 14 * s, ty, 16 * s, Txt); ty += 21 * s; }
+        {   // bottom-left, just above the pilot chips (or above the flight/island gauges), so it stays out of the way
+            var tk = sim.Talk; float bw = Math.Min(470 * s, W * .46f), port = 56 * s; var lines = Wrap(tk.text, bw - port - 34 * s, 14 * s); float bh = Math.Max(port + 20 * s, (lines.Count + 1) * 19 * s + 18 * s);
+            float bottom = mode switch { Mode.Cmd => H - 152 * s - 8 * s, Mode.Fly => H - 172 * s - 8 * s, Mode.Eva => H - 80 * s - 8 * s, Mode.Cabin => H - 14 * s, _ => H - 14 * s };
+            var r = new Rectangle(10 * s, bottom - bh, bw, bh); Box(r, new Color((byte)11, (byte)18, (byte)36, (byte)240));
+            DrawPortrait(new Rectangle(r.X + 8 * s, r.Y + 8 * s, port, port), tk.portrait);
+            float tx = r.X + port + 20 * s; DText($"{tk.name}  \"{tk.call}\"", tx, r.Y + 7 * s, 14 * s, Rgb(tk.color)); float ty = r.Y + 7 * s + 21 * s; foreach (var ln in lines) { DText(ln, tx, ty, 14 * s, Txt); ty += 19 * s; }
         }
         if (showSheet) { curLayer = 1; DrawSheet(W, H, s); }
         if (showMenu) { curLayer = 1; DrawMenu(W, H, s); }
@@ -193,7 +195,7 @@ public sealed unsafe partial class Game
         {   // Executor chip
             var r = new Rectangle(cx, cy, cw, chh); if (Btn(r, "", 12 * s, selExec)) { selExec = true; execFollow = true; cam.follow = null; cam.dist = Math.Max(cam.dist, 900); }
             Raylib.DrawRectangleRec(new Rectangle(r.X, r.Y, 4 * s, r.Height), Color.White);
-            DText("Executor", r.X + 10 * s, r.Y + 3 * s, 14 * s, Txt); DText(G.exMoving ? $"sailing {(int)G.exSpeed} u/s" : "on station", r.X + 10 * s, r.Y + 20 * s, 11 * s, Dim);
+            DrawPortrait(new Rectangle(r.X + 8 * s, r.Y + 4 * s, 28 * s, 28 * s), -1); DText("Executor", r.X + 42 * s, r.Y + 3 * s, 14 * s, Txt); DText(G.exMoving ? $"sailing {(int)G.exSpeed} u/s" : "on station", r.X + 42 * s, r.Y + 20 * s, 11 * s, Dim);
             void XBar(int k2, float f, Color c) { var b = new Rectangle(r.X + 10 * s, r.Y + 36 * s + k2 * 6 * s, cw - 18 * s, 4 * s); Raylib.DrawRectangleRec(b, new Color((byte)0, (byte)0, (byte)0, (byte)110)); Raylib.DrawRectangleRec(new Rectangle(b.X, b.Y, b.Width * Math.Clamp(f, 0, 1), b.Height), c); }
             XBar(0, G.aeth / 600f, Rgb(0xa08cff)); XBar(1, G.exSpeed / Sim.ExMax, Accent); cx += cw + 6 * s;
         }
@@ -202,7 +204,7 @@ public sealed unsafe partial class Game
             var st = Sim.StatOf(sh); var r = new Rectangle(cx, cy, cw, chh); bool on = sh == sel && !selExec;
             if (Btn(r, "", 12 * s, on)) { sel = sh; selExec = false; cam.follow = sh; cam.dist = Math.Min(cam.dist, 700); selIsl = null; }
             Raylib.DrawRectangleRec(new Rectangle(r.X, r.Y, 4 * s, r.Height), Rgb(sh.color));
-            DText(sh.name.Split(' ')[0], r.X + 10 * s, r.Y + 3 * s, 14 * s, Txt); DText(sh.indep ? "independent" : sh.state, r.X + 10 * s, r.Y + 20 * s, 11 * s, Dim);
+            DrawPortrait(new Rectangle(r.X + 8 * s, r.Y + 4 * s, 28 * s, 28 * s), sh.idx); DText(sh.name.Split(' ')[0], r.X + 42 * s, r.Y + 3 * s, 14 * s, Txt); DText(sh.indep ? "independent" : sh.state, r.X + 42 * s, r.Y + 20 * s, 11 * s, Dim);
             void Bar(int k, float f, Color c) { var b = new Rectangle(r.X + 10 * s, r.Y + 36 * s + k * 6 * s, cw - 18 * s, 4 * s); Raylib.DrawRectangleRec(b, new Color((byte)0, (byte)0, (byte)0, (byte)110)); Raylib.DrawRectangleRec(new Rectangle(b.X, b.Y, b.Width * Math.Clamp(f, 0, 1), b.Height), c); }
             Bar(0, sh.fuel / st.fuel, Accent); Bar(1, sh.loy / 100f, sh.indep ? Rgb(0xffbe5a) : sh.loy < 35 ? Rgb(0xff6464) : Rgb(0x6eeba0)); Bar(2, sh.hull / st.hull, Rgb(0xff9a4a));
             cx += cw + 6 * s;

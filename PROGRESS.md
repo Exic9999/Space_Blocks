@@ -52,7 +52,7 @@ User request (verbatim intent): (1) move teammate/NPC talk messages to bottom-LE
 - Talk box: bottom-left above the chips (Cmd) / above gauges (Fly/Eva), with a procedural headshot portrait.
 
 ## Milestones
-[ ] P1 talk box bottom-left + portraits on chips + clearer manual landing hint
+[x] P1 DONE: talk box bottom-left above chips/gauges with procedural headshot (Portrait.cs), portraits on pilot chips, Fly HUD hint "hold Ctrl to descend, then F to land"
 [ ] P2 Terrain.cs + island size classes + Sim integration + tests
 [ ] P3 island rendering (terrain, water/rivers/waterfalls, trails, trees, mountains) + screenshots
 [ ] P4 tools: commander viewmodel laser/pickaxe (LMB, 1/2), NPC gear on figures

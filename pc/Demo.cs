@@ -39,6 +39,7 @@ public sealed unsafe partial class Game
             case "walk-corridor": SetMode(Mode.Walk); walk.x = 0; walk.z = -8; walk.yaw = 0; break;
             case "cabin": OpenCabin(sim.G.ships[0]); break;
             case "sail": { sim.G.aeth = 400; sim.SailTo(sim.G.exx + 500, sim.G.exy - 700); for (int i = 0; i < 700; i++) sim.Step(.1f); cam.dist = 900; cam.el = .5f; cam.az = 1.2f; selExec = true; execFollow = true; for (int i = 0; i < 50; i++) Frame(1f / 30); break; }
+            case "talk": sim.ShipTalk(sim.G.ships[1], "Give me a bigger tank and I'll haul you a mountain.", 60); cam.dist = 1800; break;
             case "sheet": showSheet = true; sim.G.aeth = 400; break;
             case "crawl": StartCrawl(Data.Prologue, null); crawlT = 14; break;
             default: Console.WriteLine("unknown scenario"); return 2;

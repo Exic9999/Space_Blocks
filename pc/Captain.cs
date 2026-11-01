@@ -182,6 +182,7 @@ public sealed unsafe partial class Game
         if (selIsl != null) Pointer(new Vector3(selIsl.x, selIsl.h + sim.Bob(selIsl), selIsl.y), selIsl.name.ToUpper(), Accent, Mx.Hypot(selIsl.x - c.x, selIsl.y - c.y));
         // prompts
         var land = sim.CapCanLand(); string hint = sim.CapCanDock() ? "[F] Dock with the Executor" : land != null ? $"[F] Land on {land.name}" : "";
+        if (hint == "") foreach (var oi in G.isl) { float dh = Mx.Hypot(oi.x - c.x, oi.y - c.y); if (dh < oi.s * .85f && c.state == "fly") { hint = $"Over {oi.name}: hold Ctrl to descend, then press F to land"; break; } }
         if (hint != "") DTextC(hint, W / 2, H - 110 * s, 20 * s, Rgb(0xffe9a0));
         DTextC("W/S throttle   A/D turn   Space/Ctrl climb   Tab target   G autopilot   R home   N map", W / 2, H - 28 * s, 13 * s, Dim);
         if (c.fuel <= 0) DTextC("OUT OF FUEL - drifting home (R)", W / 2, 90 * s, 18 * s, Rgb(0xff6464));

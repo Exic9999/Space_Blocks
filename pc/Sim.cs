@@ -57,7 +57,7 @@ public sealed class GameState
 }
 
 public sealed class LogLine { public string msg = ""; public uint color; public float t = 6; }
-public sealed class Talk { public string name = "", call = "", text = ""; public uint color; public float t; }
+public sealed class Talk { public string name = "", call = "", text = ""; public uint color; public float t; public int portrait = -1; }
 public struct Stat { public float speed, mine, fuel, cargo, hull; }
 public sealed class Plan { public Island? isl; public bool scout; }
 
@@ -82,9 +82,9 @@ public sealed class Sim
 
     public void Say(string m, uint c = C_DEF) { Logs.Add(new LogLine { msg = m, color = c }); if (Logs.Count > 5) Logs.RemoveAt(0); }
 
-    public void SayTalk(string name, string call, uint color, string text, float secs)
-    { Talk = new Talk { name = name, call = call, color = color, text = text, t = secs }; }
-    public void ShipTalk(Ship s, string txt, float secs = 4.5f) => SayTalk(s.name, Data.Crew[s.idx].Call, s.color, txt, secs);
+    public void SayTalk(string name, string call, uint color, string text, float secs, int portrait = -1)
+    { Talk = new Talk { name = name, call = call, color = color, text = text, t = secs, portrait = portrait }; }
+    public void ShipTalk(Ship s, string txt, float secs = 4.5f) => SayTalk(s.name, Data.Crew[s.idx].Call, s.color, txt, secs, s.idx);
     public void Chat(Ship s) { var c = Data.Crew[s.idx]; ShipTalk(s, c.Lines[Rng.Next(c.Lines.Length)]); }
 
     // ---------------- new game / ships ----------------
@@ -623,7 +623,7 @@ public sealed class Sim
             {
                 b.Add(key); beatCool = 11; BeatLog.Add(e.k);
                 if (e.w is string) SayTalk("Executor", "ship AI", C_CYAN, e.x, 9);
-                else { var c = Data.Crew[(int)e.w]; SayTalk(c.Name, c.Call, c.Color, e.x, 9); }
+                else { var c = Data.Crew[(int)e.w]; SayTalk(c.Name, c.Call, c.Color, e.x, 9, (int)e.w); }
                 if (e.k == "finale") { Say("Haven found. The story ends here. Play on, Commander.", 0xffc24a); EpilogueIn = 9.5f; }
                 return;
             }
