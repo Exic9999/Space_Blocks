@@ -173,6 +173,14 @@ public static class Scene
     }
 
     // ---------- crew figures (torso+head static; limbs separate) ----------
+    // what every crew member carries: a laser pistol holstered on the hip and a pick axe strapped across the back
+    public static Mesh BuildFigureGear(int idx)
+    {
+        var m = new MeshBuilder(); var steel = C(0x9aa4b8); var wood = C(0x7a5230); var dk = C(0x2a3040); var gold = C(0xe0b84a);
+        var sv = m.T; m.T = Matrix4x4.CreateRotationZ(.55f) * Matrix4x4.CreateTranslation(.04f, 1.18f, -.2f) * sv; m.CylY(.016f, .02f, .95f, 0, 0, 0, wood, 6); m.Box(.3f, .045f, .05f, 0, .5f, 0, steel); m.Box(.06f, .06f, .07f, 0, .5f, 0, dk); m.CylY(.022f, .022f, .05f, 0, -.2f, 0, gold, 6); m.T = sv;
+        m.Box(.07f, .2f, .13f, .29f, .88f, .02f, dk); m.Box(.06f, .08f, .15f, .29f, .98f, .03f, C(0x4a5468)); m.Box(.012f, .15f, .02f, .33f, .88f, .02f, C(0x5adcff), 255); m.Box(.1f, .03f, .06f, .26f, 1.0f, 0, gold);
+        return m.Build();
+    }
     public static (Mesh body, Mesh arm, Mesh leg) BuildFigure(int idx)
     {
         var cd = Data.Crew[idx]; var suit = C(cd.Color); suit = Col.Mul(suit, .8f); var sk = C(cd.Skin); var dk = C(0x222838);
@@ -182,3 +190,4 @@ public static class Scene
         return (b.Build(), a.Build(), l.Build());
     }
 }
+

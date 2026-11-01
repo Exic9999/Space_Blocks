@@ -54,6 +54,7 @@ public sealed unsafe partial class Game
         for (int tk = 0; tk < 3; tk++) { IslandBuilder.TreeProto(tk, 0); IslandBuilder.TreeProto(tk, 1); } // warm the shared tree prototypes before worker threads use them
         windowIsland = IslandBuilder.Build(new Island { seed = 777, s = 70, aeth = 100, max = 100 }); water = new WaterShader();
         for (int i = 0; i < 5; i++) figs[i] = Scene.BuildFigure(i);
+        BuildTools();
         for (int i = 0; i < 3; i++) stormFx[i] = MakeStormFx();
         LoadUiFont();
         if (audio) InitAudio();
@@ -129,6 +130,7 @@ public sealed unsafe partial class Game
             case Mode.Cabin: RenderCabin(); break;
             default: RenderExterior(); break;
         }
+        if (mode == Mode.Eva) DrawViewmodel(T);
         DrawHud(dt);
         Raylib.EndDrawing();
         if (sim.ScanFx > 0) sim.ScanFx -= dt;
@@ -291,7 +293,7 @@ public sealed unsafe partial class Game
                 Billboard(cam3, b, 36 + MathF.Sin(t * 30) * 10, Tint(Col.Hex(0xff8aa0), .9f));
             }
         }
-        DrawCaptainGlows(cam3, t); DrawOreGlows(t);
+        DrawCaptainGlows(cam3, t); DrawOreGlows(t); DrawBolt(t);
         if (sim.ScanFx > 0) { float k = 1 - sim.ScanFx / 1.4f; DrawRingAdd(new Vector3(sim.G.exx, 30, sim.G.exy), (700 + 260 * G.upSensors) * k, Tint(Col.Hex(0x5adcff), .5f * (1 - k))); }
         Raylib.EndBlendMode(); Rlgl.EnableDepthMask();
         DrawStorms(t);
@@ -407,7 +409,7 @@ public sealed unsafe partial class Game
             bool show = s.state == "docked" && (s.ph != "aboard"); if (!show) continue;
             var f = figs[s.idx]; float sw = s.walking ? MathF.Sin(t * 9 + s.idx) * .7f : 0;
             var basis = Matrix4x4.CreateRotationY(s.pa) * Matrix4x4.CreateTranslation(s.px, 0, s.pz);
-            lit.Draw(f.body, basis);
+            lit.Draw(f.body, basis); lit.Draw(figGear[s.idx], basis);
             lit.Draw(f.leg, Matrix4x4.CreateRotationX(sw) * Matrix4x4.CreateTranslation(-.13f, .84f, 0) * basis); lit.Draw(f.leg, Matrix4x4.CreateRotationX(-sw) * Matrix4x4.CreateTranslation(.13f, .84f, 0) * basis);
             lit.Draw(f.arm, Matrix4x4.CreateRotationX(-sw * .8f) * Matrix4x4.CreateTranslation(-.34f, 1.42f, 0) * basis); lit.Draw(f.arm, Matrix4x4.CreateRotationX(sw * .8f) * Matrix4x4.CreateTranslation(.34f, 1.42f, 0) * basis);
         }

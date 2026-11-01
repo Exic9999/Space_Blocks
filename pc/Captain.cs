@@ -148,7 +148,7 @@ public sealed unsafe partial class Game
         c.ex += (mx * cy + mz * sy) * sp * dt; c.ez += (-mx * sy + mz * cy) * sp * dt;
         float r = Mx.Hypot(c.ex, c.ez), rmax = isl.s * .86f; if (r > rmax) { c.ex *= rmax / r; c.ez *= rmax / r; }
         var (lx, lz) = sim.LandSpot(isl); float sd = Mx.Hypot(c.ex - lx, c.ez - lz); if (sd < 3.4f) { float k = 3.4f / MathF.Max(sd, .01f); c.ex = lx + (c.ex - lx) * k; c.ez = lz + (c.ez - lz) * k; }
-        bool holding = Raylib.IsKeyDown(KeyboardKey.E); bool mining = sim.MineTick(dt, holding); evaSpark = mining ? .2f : MathF.Max(0, evaSpark - dt);
+        UseTools(dt);
         if (Raylib.IsKeyPressed(KeyboardKey.F) && sd < 7.5f) { if (sim.CapTakeoff()) { capCamInit = false; SetMode(Mode.Fly); } }
         if (Raylib.IsKeyPressed(KeyboardKey.N)) SetMode(Mode.Cmd);
         if (Raylib.IsKeyPressed(KeyboardKey.M)) ToggleMusic();
@@ -196,9 +196,10 @@ public sealed unsafe partial class Game
         DText($"ORE PACK  {(int)c.ore}/{Sim.CapCarry}   ({(int)(c.ore * Sim.ChunkVal)} Aetherite)", gr.X + 12 * s, gr.Y + 8 * s, 14 * s, Rgb(0xb69cff));
         var b = new Rectangle(gr.X + 12 * s, gr.Y + 34 * s, 226 * s, 10 * s); Raylib.DrawRectangleRec(b, new Color((byte)0, (byte)0, (byte)0, (byte)130)); Raylib.DrawRectangleRec(new Rectangle(b.X, b.Y, b.Width * c.ore / Sim.CapCarry, b.Height), Rgb(0xa08cff));
         var (lx, lz) = sim.LandSpot(isl); float sd = Mx.Hypot(c.ex - lx, c.ez - lz);
-        string hint = n >= 0 && c.ore < Sim.CapCarry ? "[hold E] Mine ore" : n >= 0 ? "Pack full - fly it back to the Executor" : sd < 7.5f ? "[F] Board your ship" : "Look for the glowing ore beside the crystals";
+        string hint = n >= 0 && c.ore < Sim.CapCarry ? (evaTool == 0 ? "[hold E or left-click] Swing the pick axe" : "[hold left-click] Laser the ore") : n >= 0 ? "Pack full - fly it back to the Executor" : sd < 7.5f ? "[F] Board your ship" : "Look for the glowing ore beside the crystals";
         DTextC(hint, W / 2, H - 120 * s, 20 * s, Rgb(0xffe9a0)); if (sd < 7.5f && n >= 0) DTextC("[F] Board your ship", W / 2, H - 92 * s, 14 * s, Dim);
         if (c.mineT > 0) { float f = c.mineT / 1.5f; var rb = new Rectangle(W / 2 - 80 * s, H / 2 + 40 * s, 160 * s, 10 * s); Raylib.DrawRectangleRec(rb, new Color((byte)0, (byte)0, (byte)0, (byte)150)); Raylib.DrawRectangleRec(new Rectangle(rb.X, rb.Y, rb.Width * f, rb.Height), Rgb(0xffe0ff)); }
-        DTextC("WASD move   Shift run   hold E mine   F ship   N map", W / 2, H - 28 * s, 13 * s, Dim);
+        DTextC("WASD move   Shift run   1 pick axe   2 laser gun   left-click use   F ship   N map", W / 2, H - 28 * s, 13 * s, Dim);
+        { float tx = W - 250 * s; DText("[1] PICK AXE", tx, H - 66 * s, 15 * s, evaTool == 0 ? Rgb(0xffe9a0) : Dim); DText("[2] LASER GUN", tx, H - 44 * s, 15 * s, evaTool == 1 ? Rgb(0x7fe8ff) : Dim); }
     }
 }

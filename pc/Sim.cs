@@ -514,9 +514,15 @@ public sealed class Sim
     public bool MineTick(float dt, bool holding)
     {
         var c = G.cap; if (c.state != "landed") { c.mineT = 0; return false; }
-        var i = G.isl[c.island]; int n = NearestNode(i, c.ex, c.ez);
-        if (!holding || n < 0 || c.ore >= CapCarry || i.aeth < ChunkVal) { c.mineT = 0; return false; }
-        c.mineT += dt; if (c.mineT >= 1.5f) { c.mineT = 0; i.aeth -= ChunkVal; c.ore += 1; if (c.ore >= CapCarry) Say("Your pack is full. Fly it back to the Executor.", C_WARN); }
+        var i = G.isl[c.island]; int n = NearestNode(i, c.ex, c.ez); if (!holding) { c.mineT = 0; return false; }
+        return MineNode(dt, n, 1f);
+    }
+    // Work on one specific ore node (pick axe: the nearest one; laser: the one under the crosshair, faster).
+    public bool MineNode(float dt, int node, float speed)
+    {
+        var c = G.cap; if (c.state != "landed") { c.mineT = 0; return false; } var i = G.isl[c.island];
+        if (node < 0 || c.ore >= CapCarry || i.aeth < ChunkVal) { c.mineT = 0; return false; }
+        c.mineT += dt * speed; if (c.mineT >= 1.5f) { c.mineT = 0; i.aeth -= ChunkVal; c.ore += 1; if (c.ore >= CapCarry) Say("Your pack is full. Fly it back to the Executor.", C_WARN); }
         return true;
     }
     // Drop carried ore chunks into the Executor's Aetherite tank (call while standing at the deposit station).
