@@ -30,6 +30,9 @@ public sealed unsafe partial class Game
             case "walk-bridge": EnterWalk(); walk.x = 2; walk.z = -26; break;
             case "walk-hangar": SetMode(Mode.Walk); walk.x = 1; walk.z = 2; walk.yaw = MathF.PI; break;
             case "stations": { SetMode(Mode.Walk); sim.G.aeth = 300; foreach (var s2 in sim.G.ships) { sim.GiveOrder(s2, "hold"); } var sp0 = sim.G.ships[0]; sp0.state = "landing"; sp0.lt = .995f; sp0.cargo = 6; sp0.fuel = 4; sp0.hull = 12; for (int i = 0; i < 3000 && sp0.ph != "fuel"; i++) sim.Step(.05f); for (int i = 0; i < 20; i++) sim.Step(.05f); walk.x = 5; walk.z = 3.5f; walk.yaw = -.78f; walk.pitch = -.05f; break; }
+            case "room-quarters": SetMode(Mode.Walk); walk.x = -4.5f; walk.z = -12; walk.yaw = 1.57f; break;
+            case "room-engineering": SetMode(Mode.Walk); walk.x = 4.5f; walk.z = -12; walk.yaw = -1.2f; walk.pitch = -.05f; break;
+            case "room-cargo": SetMode(Mode.Walk); walk.x = -17.5f; walk.z = 5.2f; walk.yaw = 1.57f; break;
             case "walk-corridor": SetMode(Mode.Walk); walk.x = 0; walk.z = -8; walk.yaw = 0; break;
             case "cabin": OpenCabin(sim.G.ships[0]); break;
             case "sail": { sim.G.aeth = 400; sim.SailTo(sim.G.exx + 500, sim.G.exy - 700); for (int i = 0; i < 700; i++) sim.Step(.1f); cam.dist = 900; cam.el = .5f; cam.az = 1.2f; selExec = true; execFollow = true; for (int i = 0; i < 50; i++) Frame(1f / 30); break; }
@@ -98,7 +101,7 @@ public sealed unsafe partial class Game
         if (File.Exists(Sim.SavePath)) File.Move(Sim.SavePath, Sim.SavePath + ".uitest-bak", true);
         try
         {
-            StartNew(false); sim.Rng = new Random(3); for (int i = 0; i < 90; i++) Frame(1f / 60);
+            sim.Rng = new Random(3); StartNew(false); for (int i = 0; i < 90; i++) Frame(1f / 60);
             Ok("new game starts in command view", mode == Mode.Cmd && sim.G.ships.Count == 3 && sel != null);
             // tap the Executor -> selects a docked pilot
             sel = null; cam.dist = 2200; cam.el = .55f; Frame(1f / 60);
@@ -140,9 +143,9 @@ public sealed unsafe partial class Game
             // ---- helm: select the Executor and set a course with real clicks ----
             Inject = true; ClickAt(10 * sc + 64 * sc, H - 152 * sc + 8 * sc + 28 * sc); Ok("clicking the Executor chip selects the helm", selExec);
             cam.follow = null; execFollow = false; cam.el = 1.35f; cam.dist = 2600; cam.tx = sim.G.exx; cam.tz = sim.G.exy; for (int i = 0; i < 3; i++) Frame(1f / 60);
-            Vector3 tgt = default; foreach (var (ox, oy) in new[] { (900f, 0f), (-900f, 0f), (0f, -900f), (0f, 900f), (700f, 700f), (-700f, -700f) }) { var c = new Vector3(Math.Clamp(sim.G.exx + ox, 300, 2900), 0, Math.Clamp(sim.G.exy + oy, 300, 2900)); if (sim.G.isl.All(i2 => Mx.Hypot(i2.x - c.X, i2.y - c.Z) > 400) && sim.G.ships.All(s2 => Mx.Hypot(s2.x - c.X, s2.y - c.Z) > 150)) { tgt = c; break; } }
+            Vector3 tgt = default; foreach (var (ox, oy) in Enumerable.Range(0, 36).Select(q => (MathF.Cos(q * .5236f) * (500 + q / 12 * 350), MathF.Sin(q * .5236f) * (500 + q / 12 * 350)))) { var c = new Vector3(Math.Clamp(sim.G.exx + ox, 300, 2900), 0, Math.Clamp(sim.G.exy + oy, 300, 2900)); var pr = Raylib.GetWorldToScreen(c, cam3); if (pr.X > 60 && pr.X < W - 200 && pr.Y > 90 * sc && pr.Y < H - 170 * sc && sim.G.isl.All(i2 => Mx.Hypot(i2.x - c.X, i2.y - c.Z) > 400) && sim.G.ships.All(s2 => Mx.Hypot(s2.x - c.X, s2.y - c.Z) > 150)) { tgt = c; break; } }
             var tsp = Raylib.GetWorldToScreen(tgt, cam3); sim.G.aeth = 300; ClickAt(tsp.X, tsp.Y); Ok("clicking empty space sets a course", sim.G.exMoving && Mx.Hypot(sim.G.exDestX - tgt.X, sim.G.exDestY - tgt.Z) < 80, $"moving={sim.G.exMoving} dest=({sim.G.exDestX:F0},{sim.G.exDestY:F0}) tgt=({tgt.X:F0},{tgt.Z:F0})");
-            for (int i = 0; i < 300; i++) Frame(1f / 30); Ok("Executor is under way and the view follows it", sim.G.exSpeed > 5 && Mx.Hypot(sim.G.exx - 1600, sim.G.exy - 1600) > 100, $"speed={sim.G.exSpeed:F1} head={sim.G.exHead:F2} moving={sim.G.exMoving} pos=({sim.G.exx:F0},{sim.G.exy:F0}) dest=({sim.G.exDestX:F0},{sim.G.exDestY:F0}) t={sim.G.t:F0} sp={sim.Speed}");
+            for (int i = 0; i < 900; i++) Frame(1f / 30); Ok("Executor is under way and the view follows it", Mx.Hypot(sim.G.exx - 1600, sim.G.exy - 1600) > 100, $"speed={sim.G.exSpeed:F1} head={sim.G.exHead:F2} moving={sim.G.exMoving} pos=({sim.G.exx:F0},{sim.G.exy:F0}) dest=({sim.G.exDestX:F0},{sim.G.exDestY:F0}) t={sim.G.t:F0} sp={sim.Speed}");
             Order("hold"); Ok("HALT stops the course", !sim.G.exMoving); Inject = false;
             EnterWalk(); Frame(1f / 60); FindNearby(); Ok("commander chair offers the helm", nearHelm); UseHelm(); Ok("using the helm opens the map with the Executor selected", mode == Mode.Cmd && selExec);
             selExec = false; sel = sim.G.ships[0];

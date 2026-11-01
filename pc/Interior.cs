@@ -37,9 +37,14 @@ public static class Interior
             for (int i = 0; i < n; i++) mb.Box(.3f, h, step - .08f, x, h / 2, za + step * (i + .5f), i % 2 == 0 ? wallA : wallB);
             mb.Box(.34f, .22f, zb - za, x, h - .1f, (za + zb) / 2, trim);
         }
+        void WallXGap(float x, float za, float zb, float h, float g0, float g1, float doorH)
+        {
+            WallX(x, za, g0, h); WallX(x, g1, zb, h);
+            mb.Box(.3f, h - doorH, g1 - g0, x, doorH + (h - doorH) / 2, (g0 + g1) / 2, wallB); mb.Box(.34f, .14f, g1 - g0, x, doorH, (g0 + g1) / 2, trim);
+        }
         // ---- hangar: x -16..16, z -6..34, h 14 ----
         Floor(-16, 16, -6, 34); Ceil(-16, 16, -6, 34, 14);
-        WallX(-16, -6, 34, 14); WallX(16, -6, 34, 14);
+        WallXGap(-16, -6, 34, 14, 3, 7.5f, 3.6f); WallX(16, -6, 34, 14);
         WallZ(-6, -16, -3, 14); WallZ(-6, 3, 16, 14); mb.Box(6, 9.5f, .3f, 0, 9.25f, -6, wallB); // doorway to corridor (3-wide each side, 4.5 high)
         // stern opening with force-field frame (field itself drawn dynamically)
         mb.Box(32, .4f, .4f, 0, 12.8f, 33.9f, cyan, 255); mb.Box(32, .4f, .4f, 0, .4f, 33.9f, cyan, 255);
@@ -61,7 +66,7 @@ public static class Interior
         // aetherite tank frames (liquid drawn dynamically)
         foreach (var t in Walker.Tanks) { mb.CylY(1.9f, 1.9f, .5f, t[0], .25f, t[1], dkc, 18); mb.CylY(1.9f, 1.9f, .5f, t[0], 11.2f, t[1], dkc, 18); }
         // ---- corridor: x -3..3, z -18..-5.9, h 4.5 ----
-        Floor(-3, 3, -18, -5.9f); Ceil(-3, 3, -18, -5.9f, 4.5f); WallX(-3, -18, -5.9f, 4.5f); WallX(3, -18, -5.9f, 4.5f);
+        Floor(-3, 3, -18, -5.9f); Ceil(-3, 3, -18, -5.9f, 4.5f); WallXGap(-3, -18, -5.9f, 4.5f, -14, -10, 3.3f); WallXGap(3, -18, -5.9f, 4.5f, -14, -10, 3.3f);
         for (int k = 0; k < 3; k++) { mb.Box(.3f, .06f, 4.6f, -2.9f, 4.2f, -9 - k * 4, cyan, 255); mb.Box(.3f, .06f, 4.6f, 2.9f, 4.2f, -9 - k * 4, cyan, 255); }
         lights.Add(new PtLight { Pos = new(0, 3.8f, -12), Col = new(.5f, .65f, .75f), Rad = 16 });
         // ---- bridge: x -14..14, z -38..-18, h 9 ----
@@ -99,6 +104,56 @@ public static class Interior
             mb.Box(3.0f, .4f, 3.0f, gx, .2f, gz, cons); mb.Box(.5f, 6.5f, .5f, gx + .8f, 3.3f, gz, C(0x4a566e)); mb.Box(.5f, .5f, 2.0f, gx + .8f, 6.6f, gz, C(0x4a566e));
             mb.Box(4.2f, .35f, .45f, gx - 1.5f, 5.2f, gz, C(0x6a7390)); mb.CylY(.12f, .12f, 1.6f, gx - 3.5f, 4.4f, gz, C(0x8892aa), 8); mb.Sphere(.28f, gx - 3.5f, 3.5f, gz, C(0xffe9a0), 1, 1, 1, 255, 5, 8);
             mb.Box(1.3f, 1.0f, .7f, 12.6f, .5f, 31f, cons);
+        }
+        // ================= extra rooms: Crew Quarters (west), Engineering (east), Cargo Hold (off the hangar) =================
+        var brown = C(0x6a4a30); var steel = C(0x59647c); var yellow = C(0xe8c030);
+        // ---- Crew Quarters: x -17..-3, z -17.5..-6.5 ----
+        Floor(-17, -3, -17.5f, -6.5f); Ceil(-17, -3, -17.5f, -6.5f, 4.5f); WallX(-17, -17.5f, -6.5f, 4.5f); WallZ(-17.5f, -17, -3, 4.5f); WallZ(-6.5f, -17, -3, 4.5f);
+        for (int k = 0; k < 6; k++)
+        {
+            float bz = -16.4f + k * 1.8f; uint blanket = k < 5 ? Data.Crew[k].Color : 0xe0b84au;
+            mb.Box(2.1f, .5f, .95f, -15.95f, .25f, bz, C(0x2a3040)); mb.Box(2.0f, .18f, .85f, -15.95f, .58f, bz, C(0xe8ecf4)); mb.Box(1.2f, .1f, .87f, -15.4f, .7f, bz, C(blanket));
+            mb.Sphere(.2f, -16.65f, .78f, bz, C(0xe8ecf4), 1.2f, .5f, 1f); mb.Box(.06f, .22f, .55f, -16.93f, 1.5f, bz, C(blanket), 220);
+        }
+        for (int k = 0; k < 5; k++) mb.Box(.85f, 2.3f, .55f, -15.3f + k * 2.3f, 1.15f, -17.2f, C(0x4a566e));
+        mb.Box(3.2f, .12f, 1.4f, -9, .86f, -14.4f, brown); mb.Box(.3f, .85f, .3f, -10.2f, .43f, -14.4f, steel); mb.Box(.3f, .85f, .3f, -7.8f, .43f, -14.4f, steel);
+        foreach (var (cx, cz) in new[] { (-10.2f, -15.7f), (-7.8f, -15.7f), (-10.2f, -13.1f), (-7.8f, -13.1f) }) mb.Box(.55f, .5f, .55f, cx, .3f, cz, C(0x3a4660));
+        mb.CylY(.35f, .28f, .5f, -4.2f, .25f, -16.4f, C(0x8a4a2a), 10); mb.Sphere(.5f, -4.2f, .95f, -16.4f, C(0x3a9a4a), 1, 1.1f, 1, 0, 5, 8);
+        mb.Box(3f, .1f, .3f, -10, 4.4f, -12, C(0xfff0d0), 255); mb.Box(3f, .1f, .3f, -10, 4.4f, -8, C(0xfff0d0), 255);
+        lights.Add(new PtLight { Pos = new(-10, 3.7f, -12), Col = new(.62f, .52f, .4f), Rad = 14 });
+        // ---- Engineering: x 3..17, z -17.5..-6.5 ----
+        Floor(3, 17, -17.5f, -6.5f); Ceil(3, 17, -17.5f, -6.5f, 4.5f); WallX(17, -17.5f, -6.5f, 4.5f); WallZ(-17.5f, 3, 17, 4.5f); WallZ(-6.5f, 3, 17, 4.5f);
+        mb.CylY(2.5f, 2.5f, .3f, 11, .15f, -9, C(0x2a3144), 24); for (int k = 0; k < 6; k++) mb.Box(.28f, 4.0f, .28f, 11 + MathF.Cos(k * 1.0472f) * 1.45f, 2.2f, -9 + MathF.Sin(k * 1.0472f) * 1.45f, C(0x4a566e)); mb.CylY(1.05f, 1.05f, 3.6f, 11, 2.2f, -9, C(0x40d0ff), 16, 255);
+        for (int k = 0; k < 3; k++) mb.CylY(1.75f, 1.75f, .18f, 11, .8f + k * 1.2f, -9, C(0x6a7390), 20);
+        mb.CylY(.35f, .35f, 1.0f, 11, 4.0f, -9, C(0x6a7390), 10);
+        for (int k = 0; k < 4; k++) { mb.Box(14, .28f, .28f, 10, 4.15f, -16.5f + k * 3.2f, C(0x4a566e)); }
+        for (int k = 0; k < 8; k++) mb.Box(.5f, .1f, 5.2f, 6.2f + (k % 2) * 8.6f, .05f, -12 + (k / 2 - 1.5f) * 0, k % 2 == 0 ? yellow : C(0x1a1a22));
+        for (int k = 0; k < 4; k++)
+        {
+            float z = -15.6f + k * 2.7f; mb.Box(1.2f, 1.0f, 2.2f, 16.3f, .5f, z, cons);
+            var sv3 = mb.T; mb.T = Matrix4x4.CreateRotationZ(.3f) * Matrix4x4.CreateTranslation(16.0f, 1.4f, z) * sv3; mb.Box(.05f, .9f, 1.9f, 0, 0, 0, C(0x051a22), 120); mb.T = sv3;
+            screens.Add(new ScreenDef { Center = new(15.95f, 1.4f, z), Right = Vector3.UnitZ, Up = Vector3.Normalize(new Vector3(-MathF.Sin(.3f), MathF.Cos(.3f), 0)), W = 1.8f, H = .8f });
+        }
+        mb.Box(3f, .1f, .3f, 8, 4.4f, -9, C(0xfff0d0), 255); mb.Box(3f, .1f, .3f, 13, 4.4f, -15, C(0xfff0d0), 255);
+        lights.Add(new PtLight { Pos = new(11, 2.2f, -9), Col = new(.15f, .5f, .72f), Rad = 13 }); lights.Add(new PtLight { Pos = new(7, 3.8f, -9), Col = new(.5f, .5f, .5f), Rad = 12 });
+        // ---- Cargo Hold: x -32..-16, z -1..15, h 5 (door in the hangar wall at z 3..7.5) ----
+        Floor(-32, -16, -1, 15); Ceil(-32, -16, -1, 15, 5); WallX(-32, -1, 15, 5); WallZ(-1, -32, -16, 5); WallZ(15, -32, -16, 5);
+        var rng = new Random(17); uint[] crateCols = { 0x6a4a30, 0x59647c, 0x7a5a30, 0x4a566e };
+        for (int k = 0; k < 22; k++)
+        {
+            bool north = k % 2 == 0; float cx = -30.2f + (k / 2) * 1.2f + (float)rng.NextDouble() * .3f, cz = north ? .2f + (float)rng.NextDouble() * 2.0f : 9.5f + (float)rng.NextDouble() * 4.6f; float s2 = .9f + (float)rng.NextDouble() * .9f;
+            mb.Box(s2, s2, s2, cx, s2 / 2, cz, C(crateCols[k % 4])); if (k % 3 == 0) mb.Box(s2 * .8f, s2 * .8f, s2 * .8f, cx, s2 + s2 * .4f, cz, C(crateCols[(k + 1) % 4]));
+        }
+        for (int k = 0; k < 6; k++) mb.Box(.1f, 5f, .5f, -31.6f, 2.5f, 1 + k * 2.4f, C(0x4a566e));
+        mb.Box(5.5f, .08f, 3.4f, -24, .04f, 6, yellow); mb.Box(5.2f, .09f, 3.1f, -24, .05f, 6, C(0x1a1a22));
+        mb.CylY(2.0f, 1.8f, 1.4f, -28, .7f, 5.5f, C(0x39455e), 16); // ore storage bin
+        for (int k = 0; k < 14; k++) { var sv4 = mb.T; mb.T = Matrix4x4.CreateRotationZ(((k * 37) % 7 - 3) * .12f) * Matrix4x4.CreateRotationY(k) * Matrix4x4.CreateTranslation(-28 + MathF.Cos(k * 2.1f) * (k % 4 * .4f), 1.5f, 5.5f + MathF.Sin(k * 2.1f) * (k % 4 * .4f)) * sv4; mb.Octa(.28f + (k % 3) * .06f, 1.9f, C(0xa08cff), 255); mb.T = sv4; }
+        mb.Box(3f, .1f, .3f, -24, 4.9f, 3, C(0xfff0d0), 255); mb.Box(3f, .1f, .3f, -24, 4.9f, 9, C(0xfff0d0), 255);
+        lights.Add(new PtLight { Pos = new(-24, 4.3f, 6), Col = new(.55f, .58f, .64f), Rad = 20 }); lights.Add(new PtLight { Pos = new(-28, 2.2f, 5.5f), Col = new(.32f, .22f, .6f), Rad = 8 });
+        // door frames (cyan trim)
+        foreach (var (dx, dz0, dz1, dh) in new[] { (-3f, -14f, -10f, 3.3f), (3f, -14f, -10f, 3.3f), (-16f, 3f, 7.5f, 3.6f) })
+        {
+            mb.Box(.4f, .12f, dz1 - dz0, dx, dh, (dz0 + dz1) / 2, cyan, 255); mb.Box(.4f, dh, .12f, dx, dh / 2, dz0, cyan, 255); mb.Box(.4f, dh, .12f, dx, dh / 2, dz1, cyan, 255);
         }
         var tm = new MeshBuilder(); tm.CylY(1.5f, 1.5f, 1, 0, 0, 0, C(0x8a6aff), 18, 255, true);
         return (mb.Build(), tm.Build(), lights, screens);

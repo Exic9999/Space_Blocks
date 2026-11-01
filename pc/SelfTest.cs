@@ -42,6 +42,22 @@ public static class SelfTest
         var wp = new Walker { x = -10, z = 22 }; for (int i = 0; i < 200; i++) wp.Step(sim, .016f, 0, 1);
         Ok("player standing on a pad can walk off", wp.z > 22.5f, "z=" + wp.z);
 
+        // ---- new rooms: every doorway walkable both ways, walls beside doors solid ----
+        Walker Go(float x0, float z0, float mx, float mz, int n) { var q = new Walker { x = x0, z = z0 }; for (int i = 0; i < n; i++) q.Step(sim, .016f, mx, mz); return q; }
+        var dq = Go(-1, -12, -1, 0, 220); Ok("corridor -> Crew Quarters through the west door", dq.x < -10 && dq.Where() == "Crew Quarters", "x=" + dq.x + " " + dq.Where());
+        var dq2 = Go(dq.x, dq.z, 1, 0, 260); Ok("Crew Quarters -> corridor back through the door", dq2.x > -1.5f, "x=" + dq2.x);
+        var de = Go(1, -12, 1, 0, 220); Ok("corridor -> Engineering through the east door", de.x > 10 && de.Where() == "Engineering", "x=" + de.x + " " + de.Where());
+        var de2 = Go(de.x, de.z, -1, 0, 260); Ok("Engineering -> corridor back through the door", de2.x < 1.5f, "x=" + de2.x);
+        var dc = Go(-12, 5.2f, -1, 0, 260); Ok("hangar -> Cargo Hold through the west door", dc.x < -22 && dc.Where() == "Cargo Hold", "x=" + dc.x + " " + dc.Where());
+        var dc2 = Go(dc.x, dc.z, 1, 0, 300); Ok("Cargo Hold -> hangar back through the door", dc2.x > -13, "x=" + dc2.x);
+        var wq = Go(-1.5f, -16.5f, -1, 0, 120); Ok("corridor wall beside the quarters door blocks", wq.x > -2.6f, "x=" + wq.x);
+        var we = Go(1.5f, -8, 1, 0, 120); Ok("corridor wall beside the engineering door blocks", we.x < 2.6f, "x=" + we.x);
+        var wc = Go(-12, 0, -1, 0, 120); Ok("hangar wall beside the cargo door blocks", wc.x > -15.4f, "x=" + wc.x);
+        var rz = Go(7, -9, 1, 0, 120); Ok("reactor core blocks the walker", Walker.Inside(rz.x, rz.z, .45f) && rz.x < 9.0f, "x=" + rz.x);
+        // full tour never leaves the walkable area
+        var tour = new Walker { x = 2, z = -22.5f }; var path = new[] { (0f, 1f, 150), (-1f, 0f, 120), (1f, 0f, 250), (-1f, 0f, 120), (0f, -1f, 80) }; bool tourOk = true; foreach (var (a, b, n) in path) for (int i = 0; i < n; i++) { tour.Step(sim, .016f, a, b); if (!Walker.Inside(tour.x, tour.z, .45f)) tourOk = false; }
+        Ok("walking tour stays inside the walkable area", tourOk);
+
         G.aeth = 321; string json = sim.Serialize(1);
         var sim2 = new Sim(); int sel = sim2.Deserialize(json);
         Ok("save round-trips progress", sel == 1 && sim2.G.ships.Count == 3 && MathF.Abs(sim2.G.aeth - 321) < .01f

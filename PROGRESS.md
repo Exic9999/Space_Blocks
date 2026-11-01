@@ -34,7 +34,7 @@ User request: (1) whole Executor explorable in first person incl. hangar resourc
 ## Milestones (tick when done, commit each)
 [x] M1 Executor motion (sim + render + helm UI + selftest) — DONE: Sim.ExStep/SailTo/SailToIsland/Halt, ExPt/ToLocal helpers, Executor chip + click-to-set-course + SAIL TO ISLAND + HALT, helm prompt (E at chair), course marker; selftest 29, uitest 35
 [x] M2 Hangar stations + NPC service workflow — DONE: Data.StSpot/StTank, Sim.Route/GoTo/NextVisit FSM (ph walk/unload/fuel/repair/idle/aboard), station consoles + gantry + teal fuel tank + service beams + labels, legacy-phase save normalisation; selftest 36
-[ ] M3 New interior rooms (quarters, engineering) + collision
+[x] M3 New rooms — DONE: Crew Quarters (west door off corridor, 6 bunks), Engineering (east door, reactor + live consoles), Cargo Hold (west door in hangar wall, crates, ore bin); Walker rects overlap >0.9, Block rects leave door gaps; door-traversal tests; selftest 47
 [ ] M4 Captain ship sim + Fly mode + autopilot/dock
 [ ] M5 EVA island walking + physical ore + hand mining + deposit
 [ ] M6 Tests (selftest/uitest), screenshots review, README/PROGRESS update, republish exe

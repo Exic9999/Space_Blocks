@@ -241,7 +241,7 @@ public sealed unsafe partial class Game
     {
         foreach (var (nm, px2, py2, pz2) in new[] { ("AETHERITE DEPOSIT", -14.2f, 6.5f, -1f), ("FUEL", 14.2f, 6.5f, -1f), ("REPAIR GANTRY", 14.2f, 7.5f, 28f) })
         {
-            var wp3 = new Vector3(px2, py2, pz2); var fw = Vector3.Normalize(icam.Target - icam.Position); if (Vector3.Dot(wp3 - icam.Position, fw) <= 0 || Vector3.Distance(wp3, icam.Position) > 34) continue;
+            if (!(walk.z > -5.5f && walk.x > -15.8f)) continue; var wp3 = new Vector3(px2, py2, pz2); var fw = Vector3.Normalize(icam.Target - icam.Position); if (Vector3.Dot(wp3 - icam.Position, fw) <= 0 || Vector3.Distance(wp3, icam.Position) > 34) continue;
             var sp3 = Raylib.GetWorldToScreen(wp3, icam); DTextC(nm, sp3.X, sp3.Y, 13 * s, Accent);
         }
         { var Gx = sim.G; float deg = (((-Gx.exHead * 180 / MathF.PI) % 360) + 360) % 360; DTextC($"Executor: {(Gx.exMoving ? "sailing" : "on station")}  {(int)Gx.exSpeed} u/s  heading {(int)deg}  stores {(int)Gx.aeth}", W / 2, 74 * s, 13 * s, Dim); }
