@@ -90,7 +90,7 @@ public sealed unsafe partial class Game
     }
     void SetMode(Mode m)
     {
-        mode = m; showSheet = false;
+        mode = m; showSheet = false; cursorFree = false;
         if (m is Mode.Walk or Mode.Eva) { Raylib.DisableCursor(); } else if (Raylib.IsCursorHidden()) Raylib.EnableCursor();
     }
 

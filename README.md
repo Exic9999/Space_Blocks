@@ -72,7 +72,8 @@ refuse to sail below its reserve.
 
 | Action | Input |
 |---|---|
-| Move / look | WASD / mouse |
+| Move / look | WASD / mouse (or Q and R to turn from the keyboard) |
+| Free the mouse to click buttons | Tab (press again to look around) |
 | Talk to a pilot / enter a pilot's ship | T or E / E |
 | Board your own ship | E next to it (gold ring in the hangar) |
 | Deposit ore / refuel your ship | hold E at the deposit tank / fuel tank |
@@ -93,7 +94,8 @@ refuse to sail below its reserve.
 
 | Action | Input |
 |---|---|
-| Move / run / look | WASD / Shift / mouse |
+| Move / run / look | WASD / Shift / mouse (or Q and R to turn) |
+| Free the mouse to click buttons | Tab |
 | Pick axe / laser gun | 1 / 2 |
 | Use the tool (mine ore, fight) | left-click, or hold E for the pick axe |
 | Board your ship and lift off | F next to it |

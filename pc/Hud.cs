@@ -10,7 +10,8 @@ public sealed unsafe partial class Game
     Chapter? crawlCh; float crawlT, crawlDur; Action? crawlDone;
     readonly List<Rectangle> hit = new(), prevHit = new();
     Vector2 mouse, dragStart; bool dragging; float dragMoved;
-    bool clickPressed, cursorLocked; int curLayer;
+    bool clickPressed, cursorLocked, cursorFree; int curLayer;
+    void ToggleFree() { cursorFree = !cursorFree; sim.Say(cursorFree ? "Mouse freed: click any button. Press Tab to look around again." : "Mouse look on.", 0x5adcff); }
     public bool Inject; public Vector2 InjMouse; public bool InjClick, InjDown, InjUp; bool mouseDown, mouseUp;
     int TopLayer => crawlActive ? 2 : (showSheet || showMenu) ? 1 : 0;
     float S => Math.Max(.7f, Raylib.GetScreenHeight() / 720f);
@@ -73,7 +74,7 @@ public sealed unsafe partial class Game
 
     void HandleInput(float dt)
     {
-        bool wantLock = (mode == Mode.Walk || mode == Mode.Eva) && !(showMenu || showSheet || crawlActive);
+        bool wantLock = (mode == Mode.Walk || mode == Mode.Eva) && !cursorFree && !(showMenu || showSheet || crawlActive);
         if (wantLock != cursorLocked) { if (wantLock) Raylib.DisableCursor(); else Raylib.EnableCursor(); cursorLocked = wantLock; }
         if (Inject) { mouse = InjMouse; clickPressed = InjClick; InjClick = false; mouseDown = InjDown; mouseUp = InjUp; InjUp = false; } else { mouse = Raylib.GetMousePosition(); clickPressed = Raylib.IsMouseButtonPressed(MouseButton.Left); mouseDown = Raylib.IsMouseButtonDown(MouseButton.Left); mouseUp = Raylib.IsMouseButtonReleased(MouseButton.Left); }
         if (cursorLocked && !Inject) mouse = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f); // the crosshair: the virtual cursor must never hit HUD buttons
@@ -117,7 +118,9 @@ public sealed unsafe partial class Game
         }
         else if (mode == Mode.Walk)
         {
-            var d = Raylib.GetMouseDelta(); walk.yaw -= d.X * .0025f; walk.pitch = Math.Clamp(walk.pitch - d.Y * .002f, -1.2f, 1.2f);
+            if (Raylib.IsKeyPressed(KeyboardKey.Tab)) ToggleFree();
+            if (!cursorFree) { var d = Raylib.GetMouseDelta(); walk.yaw -= d.X * .0025f; walk.pitch = Math.Clamp(walk.pitch - d.Y * .002f, -1.2f, 1.2f); }
+            if (Raylib.IsKeyDown(KeyboardKey.Q)) walk.yaw += 1.6f * dt; if (Raylib.IsKeyDown(KeyboardKey.R)) walk.yaw -= 1.6f * dt; // keyboard look for laptops
             float mx = 0, mz = 0;
             if (Raylib.IsKeyDown(KeyboardKey.W) || Raylib.IsKeyDown(KeyboardKey.Up)) mz -= 1; if (Raylib.IsKeyDown(KeyboardKey.S) || Raylib.IsKeyDown(KeyboardKey.Down)) mz += 1;
             if (Raylib.IsKeyDown(KeyboardKey.A) || Raylib.IsKeyDown(KeyboardKey.Left)) mx -= 1; if (Raylib.IsKeyDown(KeyboardKey.D) || Raylib.IsKeyDown(KeyboardKey.Right)) mx += 1;
@@ -265,7 +268,7 @@ public sealed unsafe partial class Game
         Raylib.DrawCircleLinesV(new Vector2(W / 2, H / 2), 3, new Color((byte)200, (byte)230, (byte)255, (byte)150));
         float y = H - 30 * s; var hints = new List<string>();
         if (EAction() == "board") hints.Add("[E] Board your ship, Executor One"); if (nearDep && sim.G.cap.ore >= 1) hints.Add($"[hold E] Deposit ore ({(int)sim.G.cap.ore} chunks)"); if (nearFuelSt && sim.G.cap.state == "docked" && sim.G.cap.fuel < Sim.CapFuelMax - .01f) hints.Add($"[hold E] Refuel your ship ({(int)sim.G.cap.fuel}/{(int)Sim.CapFuelMax})");
-        if (EAction() == "helm") hints.Add("[E] Helm: plot a course"); if (nearNpc != null) hints.Add($"[T] Talk to {nearNpc.name.Split(' ')[0]}"); if (EAction() == "enter") hints.Add($"[E] Enter {Data.Crew[nearShip.idx].Call}"); hints.Add("[B] Command view     WASD move, mouse look");
+        if (EAction() == "helm") hints.Add("[E] Helm: plot a course"); if (nearNpc != null) hints.Add($"[T] Talk to {nearNpc.name.Split(' ')[0]}"); if (EAction() == "enter") hints.Add($"[E] Enter {Data.Crew[nearShip.idx].Call}"); hints.Add("[B] command map     [Tab] free the mouse to click buttons     WASD move, mouse or Q/R look");
         foreach (var h in hints.AsEnumerable().Reverse()) { DTextC(h, W / 2, y, 16 * s, h.StartsWith("[B]") ? Dim : Accent); y -= 24 * s; }
     }
     void DrawSheet(float W, float H, float s)
