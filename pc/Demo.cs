@@ -26,6 +26,7 @@ public sealed unsafe partial class Game
             case "cmd": cam.dist = 2300; cam.el = .55f; break;
             case "follow": sel = sim.G.ships[1]; cam.follow = sel; cam.dist = 600; cam.el = .35f; for (int i = 0; i < 60; i++) { Frame(1f / 30); } break;
             case "island": case "island-big": case "island-med": case "island-small": { var il = sim.G.isl; Island i = scen == "island-big" ? il.OrderByDescending(o => o.s).First() : scen == "island-small" ? il.OrderBy(o => o.s).First() : scen == "island-med" ? il.OrderBy(o => Math.Abs(o.s - 100)).First() : il[0]; i.found = true; for (int q = 0; q < 20; q++) Frame(1f / 30); cam.follow = null; execFollow = false; cam.tx = i.x; cam.ty = i.h; cam.tz = i.y; cam.dist = i.s * 3.0f + 150; cam.el = .42f; cam.az = .9f; selIsl = null; break; }
+            case "exec-close": cam.dist = 330; cam.el = .38f; cam.az = 2.45f; cam.tx = sim.G.exx; cam.tz = sim.G.exy + 40; break;
             case "exec": cam.dist = 700; cam.el = .4f; cam.az = 2.6f; break;
             case "storm": cam.dist = 2000; cam.el = .5f; if (sim.G.storms.Count > 0) { var q = sim.G.storms[0]; cam.tx = q.x; cam.tz = q.y; cam.dist = q.r * 3.2f; } break;
             case "walk-bridge": EnterWalk(); walk.x = 2; walk.z = -26; break;

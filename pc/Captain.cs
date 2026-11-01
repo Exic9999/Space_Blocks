@@ -53,7 +53,7 @@ public sealed unsafe partial class Game
     }
     void DrawCaptainExt(Camera3D cam, float t)
     {
-        var v = capVis; if (v.Gfx == null || !v.ExtVis) return; lit.Draw(v.Gfx.Mesh, v.Ext);
+        var v = capVis; if (v.Gfx == null || !v.ExtVis) return; lit.Draw(v.Gfx.Mesh, v.Ext, 1f, .7f, 1f / 4.5f);
     }
     void DrawCaptainGlows(Camera3D cam, float t)
     {

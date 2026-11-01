@@ -74,11 +74,11 @@ public sealed unsafe partial class Game
         {
             float a = swingT > 0 ? MathF.Sin(swingT * 9) : 0; // 0 idle .. swinging
             m = Matrix4x4.CreateRotationX(-.35f + a * 1.15f) * Matrix4x4.CreateRotationY(.25f) * Matrix4x4.CreateRotationZ(-.18f) * Matrix4x4.CreateTranslation(.3f, -.5f + bob - a * .06f, -.62f - a * .12f);
-            lit.Draw(pickMesh, m);
+            lit.Draw(pickMesh, m, 1f, .8f);
         }
         else
         {
-            m = Matrix4x4.CreateScale(.62f) * Matrix4x4.CreateRotationX(.02f + kick * .1f) * Matrix4x4.CreateRotationY(.05f) * Matrix4x4.CreateTranslation(.2f, -.17f + bob, -.55f + kick * .05f); lit.Draw(gunMesh, m);
+            m = Matrix4x4.CreateScale(.62f) * Matrix4x4.CreateRotationX(.02f + kick * .1f) * Matrix4x4.CreateRotationY(.05f) * Matrix4x4.CreateTranslation(.2f, -.17f + bob, -.55f + kick * .05f); lit.Draw(gunMesh, m, 1f, .9f);
             if (flashT > 0) { Rlgl.DisableDepthMask(); Raylib.BeginBlendMode(BlendMode.Additive); Raylib.DrawBillboard(vcam, glowTex, Vector3.Transform(new Vector3(0, .005f, -.52f), m), .22f, Col.Hex(0x9ff4ff)); Raylib.EndBlendMode(); Rlgl.EnableDepthMask(); }
         }
         Raylib.EndMode3D();

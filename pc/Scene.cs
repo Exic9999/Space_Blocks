@@ -88,6 +88,20 @@ public static class Scene
             if (y > 46) { float lim = (z + 120) / 335 * 92; if (MathF.Abs(x) > lim) y = 39; }
             mb.Box(2.4f, 1.5f, 2.4f, x, y + .8f, z, C(0xffe6a0), 255);
         }
+        // ---- extra hull detail: turret pods, antenna masts, raised plating, edge-light strips ----
+        var turretM = C(0x4a566e);
+        foreach (var (tx, tz) in new[] { (-95f, 60f), (95f, 60f), (-120f, 150f), (120f, 150f), (-60f, -40f), (60f, -40f) })
+        {
+            mb.Box(9, 3, 9, tx, 39.5f, tz, turretM); mb.CylY(3.6f, 3.2f, 3.2f, tx, 42.5f, tz, C(0x59647c), 12); mb.Sphere(2.6f, tx, 44.2f, tz, C(0x6a7390), 1, .7f, 1, 0, 4, 8);
+            var sv = mb.T; mb.T = Matrix4x4.CreateTranslation(tx, 44, tz - 5.5f) * sv; mb.CylZ(.55f, .55f, 9, 0, 0, 0, C(0x2a3040), 8); mb.CylZ(.8f, .8f, 1.2f, 0, 0, -4.4f, C(0x8892aa), 8); mb.T = sv;
+        }
+        foreach (var (ax, az, ah) in new[] { (-30f, 120f, 46f), (30f, 120f, 40f), (-48f, 155f, 34f), (48f, 155f, 52f), (0f, 90f, 28f) })
+        { mb.CylY(.7f, .5f, ah, ax, 134 + ah / 2, az, C(0x8892aa), 5); mb.Sphere(1.6f, ax, 134 + ah, az, C(0xff5a5a), 1, 1, 1, 255, 3, 5); mb.Box(8, .5f, .5f, ax, 134 + ah * .7f, az, C(0x8892aa)); }
+        for (int k = 0; k < 26; k++)
+        {
+            float z = -210 + k * 16, half = (z + 250) / 480 * 150 * .86f; float pw = 14 + (k % 3) * 5; mb.Box(pw, .9f, 12, -half * .5f, 36.7f, z, Col.Mul(hull, .92f + (k % 4) * .05f)); mb.Box(pw, .9f, 12, half * .5f, 36.7f, z, Col.Mul(hull, .95f + (k % 3) * .04f));
+        }
+        for (int s = -1; s <= 1; s += 2) for (int k = 0; k < 9; k++) { float z = -170 + k * 44, half = (z + 250) / 480 * 163; mb.Box(5, 1.2f, 2.4f, s * half, 3, z, C(0xffd890), 255); }
         // storage tanks (separate mesh: glow follows stored Aetherite)
         var tb = new MeshBuilder(); var tc = C(0x6a4cd8);
         for (int s = -1; s <= 1; s += 2)

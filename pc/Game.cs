@@ -255,10 +255,10 @@ public sealed unsafe partial class Game
         }
         // executor
         var exM = ExM;
-        lit.Draw(execHull, exM); float fill = MathF.Min(1, G.aeth / 600f);
-        lit.Draw(execTanks, exM, .25f + 1.1f * fill);
+        lit.Draw(execHull, exM, 1f, .5f, 1f / 44f); float fill = MathF.Min(1, G.aeth / 600f);
+        lit.Draw(execTanks, exM, .25f + 1.1f * fill, .9f);
         // ships
-        foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.ExtVis) lit.Draw(v.Gfx.Mesh, v.Ext); }
+        foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.ExtVis) lit.Draw(v.Gfx.Mesh, v.Ext, 1f, .6f, 1f / 4.5f); }
         DrawCaptainExt(cam3, t); DrawOreNodes(t);
         // ---- water (rivers, pools, waterfalls): alpha-blended, animated in the shader ----
         Rlgl.DisableDepthMask(); water.Begin(t, camPos);
@@ -267,6 +267,7 @@ public sealed unsafe partial class Game
         // ---- additive / transparent effects ----
         Rlgl.DisableDepthMask(); Raylib.BeginBlendMode(BlendMode.Additive);
         foreach (var g in execGlows) Billboard(cam3, Vector3.Transform(g.Pos, exM), g.Size * (g.Size > 50 && g.Op > .9f ? .92f + .08f * MathF.Sin(t * 9 + g.Pos.X) : 1), Tint(g.Col, g.Op));
+        foreach (var (lx, ly, lz, lc, per) in new[] { (-163f, 38f, 226f, 0xff3030u, 2.2f), (163f, 38f, 226f, 0x30ff60u, 2.2f), (0f, 190f, 90f, 0xffffffu, 1.4f), (-58f, 36f, 236f, 0xffe0a0u, 0f), (58f, 36f, 236f, 0xffe0a0u, 0f) }) { float bl = per == 0 ? 1f : (MathF.Sin(t * 6.283f / per) > .55f ? 1f : .15f); Billboard(cam3, Vector3.Transform(new Vector3(lx, ly, lz), exM), 16, Tint(Col.Hex(lc), .9f * bl)); }
         var ff = ExW(0, 19, 239); DrawQuadAdd(ff, 110, 32, sim.G.exHead, Tint(Col.Hex(0x40a8ff), .2f + .1f * MathF.Sin(t * 3)));
         foreach (var i in G.isl)
         {
@@ -392,7 +393,7 @@ public sealed unsafe partial class Game
         var order = intLights.OrderBy(l => Vector3.DistanceSquared(l.Pos, icam.Position)).Take(8).ToList();
         for (int i = 0; i < order.Count; i++) { lpos[i] = order[i].Pos; lcol[i] = order[i].Col; lrad[i] = order[i].Rad; }
         lit.SetInterior(icam.Position, lpos.Take(order.Count).ToArray(), lrad.Take(order.Count).ToArray(), lcol.Take(order.Count).ToArray());
-        lit.Draw(intMesh, Matrix4x4.Identity);
+        lit.Draw(intMesh, Matrix4x4.Identity, 1f, .2f, 1f / 5f);
         // window island
         lit.SetExterior(icam.Position); lit.Draw(windowIsland!.Body, Matrix4x4.CreateScale(1.4f) * Matrix4x4.CreateTranslation(-60, -6, -300));
         lit.SetInterior(icam.Position, lpos.Take(order.Count).ToArray(), lrad.Take(order.Count).ToArray(), lcol.Take(order.Count).ToArray());
@@ -402,8 +403,8 @@ public sealed unsafe partial class Game
             if (ti == 1) continue; // repair gantry, no tank
             var tk = Walker.Tanks[ti]; float h = MathF.Max(.05f, 10 * fill); lit.Draw(ti == 3 ? intTankFuel : intTank, Matrix4x4.CreateScale(1, h, 1) * Matrix4x4.CreateTranslation(tk[0], .5f + h / 2, tk[1]));
         }
-        foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.IntVis) lit.Draw(v.Gfx.Mesh, v.Int); }
-        if (capVis.Gfx != null && capVis.IntVis) lit.Draw(capVis.Gfx.Mesh, capVis.Int);
+        foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.IntVis) lit.Draw(v.Gfx.Mesh, v.Int, 1f, .5f, 1f / 4.5f); }
+        if (capVis.Gfx != null && capVis.IntVis) lit.Draw(capVis.Gfx.Mesh, capVis.Int, 1f, .5f, 1f / 4.5f);
         foreach (var s in G.ships)
         {
             bool show = s.state == "docked" && (s.ph != "aboard"); if (!show) continue;

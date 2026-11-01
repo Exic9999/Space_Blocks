@@ -141,24 +141,27 @@ public sealed unsafe class MeshBuilder
 public sealed unsafe class LitShader
 {
     public Shader Sh; public Material Mat;
-    int locSun, locSunCol, locFill, locFillCol, locSky, locGnd, locFog, locFogCol, locNPt, locPtPos, locPtCol, locView, locGlow;
+    int locSun, locSunCol, locFill, locFillCol, locSky, locGnd, locFog, locFogCol, locNPt, locPtPos, locPtCol, locView, locGlow, locSpec, locPanel; public Texture2D PanelTex;
     const string VS = @"#version 330
 layout(location=0) in vec3 vertexPosition; layout(location=2) in vec3 vertexNormal; layout(location=3) in vec4 vertexColor;
 uniform mat4 mvp; uniform mat4 matModel; uniform mat4 matNormal;
-out vec3 wpos; out vec3 wnorm; out vec4 vcol;
-void main(){ vec4 w=matModel*vec4(vertexPosition,1.0); wpos=w.xyz; wnorm=normalize(mat3(matNormal)*vertexNormal); vcol=vertexColor; gl_Position=mvp*vec4(vertexPosition,1.0); }";
+out vec3 wpos; out vec3 wnorm; out vec4 vcol; out vec3 vLocal;
+void main(){ vLocal=vertexPosition; vec4 w=matModel*vec4(vertexPosition,1.0); wpos=w.xyz; wnorm=normalize(mat3(matNormal)*vertexNormal); vcol=vertexColor; gl_Position=mvp*vec4(vertexPosition,1.0); }";
     const string FS = @"#version 330
-in vec3 wpos; in vec3 wnorm; in vec4 vcol; out vec4 finalColor;
+in vec3 wpos; in vec3 wnorm; in vec4 vcol; in vec3 vLocal; out vec4 finalColor; uniform sampler2D texture0; uniform float uSpec; uniform float uPanel;
 uniform vec3 uSun; uniform vec3 uSunCol; uniform vec3 uFill; uniform vec3 uFillCol; uniform vec3 uSky; uniform vec3 uGnd;
 uniform vec2 uFog; uniform vec3 uFogCol; uniform float uGlow; uniform vec3 viewPos; uniform int uNPt; uniform vec3 uPtPos[8]; uniform vec4 uPtCol[8];
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
 void main(){
   vec3 n=normalize(wnorm); if(!gl_FrontFacing) n=-n;
   vec3 alb=pow(vcol.rgb,vec3(2.2)); float em=vcol.a;
+  if(uPanel>0.0){ vec3 an=abs(n); an/=(an.x+an.y+an.z); vec3 pp=vLocal*uPanel; float tx=texture(texture0,pp.zy).r*an.x+texture(texture0,pp.xz).r*an.y+texture(texture0,pp.xy).r*an.z; alb*=mix(1.0,tx*1.15,0.8); vec3 cp=floor(vLocal*uPanel*4.0); float hsh=fract(sin(dot(cp,vec3(12.9898,78.233,37.719)))*43758.5453); alb*=0.84+0.3*hsh; }
   vec3 amb=mix(uGnd,uSky,n.y*0.5+0.5);
   vec3 l=amb+uSunCol*max(dot(n,normalize(uSun)),0.0)+uFillCol*max(dot(n,normalize(uFill)),0.0);
   for(int i=0;i<uNPt;i++){ vec3 d=uPtPos[i]-wpos; float dist=length(d); float r=uPtCol[i].a; float f=clamp(1.0-dist/r,0.0,1.0); l+=uPtCol[i].rgb*max(dot(n,d/max(dist,1e-3)),0.0)*f*f; }
   vec3 col=alb*l*(1.0-em)+alb*em*1.6*uGlow;
+  vec3 V=normalize(viewPos-wpos); vec3 Hh=normalize(normalize(uSun)+V); float sp=pow(max(dot(n,Hh),0.0),56.0)*uSpec; col+=uSunCol*sp*(1.0-em);
+  float rim=pow(1.0-max(dot(n,V),0.0),3.0); col+=uSky*rim*(0.10+0.22*uSpec)*(1.0-em);
   float dist=length(viewPos-wpos); float fd=uFog.x*dist; float fog=1.0-exp(-fd*fd);
   col=mix(col,uFogCol,clamp(fog,0.0,1.0));
   finalColor=vec4(pow(aces(col),vec3(1.0/2.2)),1.0);
@@ -171,8 +174,8 @@ void main(){
         Sh.Locs[(int)ShaderLocationIndex.VectorView] = Raylib.GetShaderLocation(Sh, "viewPos");
         locView = Sh.Locs[(int)ShaderLocationIndex.VectorView];
         locSun = L("uSun"); locSunCol = L("uSunCol"); locFill = L("uFill"); locFillCol = L("uFillCol"); locSky = L("uSky"); locGnd = L("uGnd");
-        locFog = L("uFog"); locFogCol = L("uFogCol"); locNPt = L("uNPt"); locPtPos = L("uPtPos"); locPtCol = L("uPtCol"); locGlow = L("uGlow");
-        Mat = Raylib.LoadMaterialDefault(); Mat.Shader = Sh;
+        locFog = L("uFog"); locFogCol = L("uFogCol"); locNPt = L("uNPt"); locPtPos = L("uPtPos"); locPtCol = L("uPtCol"); locGlow = L("uGlow"); locSpec = L("uSpec"); locPanel = L("uPanel");
+        Mat = Raylib.LoadMaterialDefault(); Mat.Shader = Sh; PanelTex = Tex.Panel(); Mat.Maps[(int)MaterialMapIndex.Albedo].Texture = PanelTex;
     }
     int L(string s) => Raylib.GetShaderLocation(Sh, s);
     void V3(int loc, Vector3 a) { float* p = stackalloc float[3] { a.X, a.Y, a.Z }; Raylib.SetShaderValue(Sh, loc, p, ShaderUniformDataType.Vec3); }
@@ -200,7 +203,7 @@ void main(){
         Raylib.SetShaderValueV(Sh, locPtPos, pp, ShaderUniformDataType.Vec3, n);
         Raylib.SetShaderValueV(Sh, locPtCol, pc, ShaderUniformDataType.Vec4, n);
     }
-    public void Draw(Mesh mesh, Matrix4x4 xf, float glow = 1f) { float g = glow; Raylib.SetShaderValue(Sh, locGlow, &g, ShaderUniformDataType.Float); Raylib.DrawMesh(mesh, Mat, Matrix4x4.Transpose(xf)); }
+    public void Draw(Mesh mesh, Matrix4x4 xf, float glow = 1f, float spec = 0f, float panel = 0f) { float g = glow, sp = spec, pn = panel; Raylib.SetShaderValue(Sh, locGlow, &g, ShaderUniformDataType.Float); Raylib.SetShaderValue(Sh, locSpec, &sp, ShaderUniformDataType.Float); Raylib.SetShaderValue(Sh, locPanel, &pn, ShaderUniformDataType.Float); Raylib.DrawMesh(mesh, Mat, Matrix4x4.Transpose(xf)); }
 }
 
 public static class Tex
@@ -215,6 +218,20 @@ public static class Tex
             Raylib.ImageDrawPixel(ref img, x, y, new Color((byte)255, (byte)255, (byte)255, (byte)(Math.Clamp(a, 0, 1) * 255)));
         }
         var t = Raylib.LoadTextureFromImage(img); Raylib.UnloadImage(img); Raylib.SetTextureFilter(t, TextureFilter.Bilinear); return t;
+    }
+        // tileable brushed-metal panel plating: seams, rivets, scratches and grime (sampled triplanar in the lit shader)
+    public static Texture2D Panel(int size = 256)
+    {
+        var rng = new Random(77); var img = Raylib.GenImageColor(size, size, new Color((byte)200, (byte)200, (byte)200, (byte)255)); int cell = size / 4;
+        for (int y = 0; y < size; y++) for (int x = 0; x < size; x++)
+        {
+            float v = 205 + (float)(rng.NextDouble() - .5) * 18 + MathF.Sin(x * .9f + (y / cell) * 3f) * 3f; int gx = x % cell, gy = y % cell;
+            if (gx < 2 || gy < 2) v -= 58; else if (gx == 2 || gy == 2) v += 14; // dark seam with a lit lip
+            if ((gx == 7 || gx == 8 || gx == cell - 8 || gx == cell - 9) && (gy == 7 || gy == 8 || gy == cell - 8 || gy == cell - 9)) v += 34; // rivets
+            Raylib.ImageDrawPixel(ref img, x, y, new Color((byte)Math.Clamp(v, 0, 255), (byte)Math.Clamp(v, 0, 255), (byte)Math.Clamp(v, 0, 255), (byte)255));
+        }
+        for (int k = 0; k < 40; k++) { int x0 = rng.Next(size), y0 = rng.Next(size), l = 6 + rng.Next(22); for (int j = 0; j < l; j++) Raylib.ImageDrawPixel(ref img, (x0 + j) % size, (y0 + j / 4) % size, new Color((byte)165, (byte)165, (byte)165, (byte)255)); }
+        var t = Raylib.LoadTextureFromImage(img); Raylib.UnloadImage(img); Raylib.GenTextureMipmaps(ref t); Raylib.SetTextureFilter(t, TextureFilter.Trilinear); Raylib.SetTextureWrap(t, TextureWrap.Repeat); return t;
     }
     public static Texture2D Reticle(int size = 128)
     {
@@ -307,3 +324,4 @@ void main(){
     }
     public void Draw(Mesh mesh, Matrix4x4 xf) => Raylib.DrawMesh(mesh, Mat, Matrix4x4.Transpose(xf));
 }
+

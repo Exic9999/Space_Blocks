@@ -40,6 +40,8 @@ dist\SpaceBlocks\SpaceBlocks.exe
   fly and land. Hand mining is done on foot: land on an island, walk to the glowing ore beside the crystals and hold E.
   Each chunk is 5 Aetherite taken from the island itself. Your pack holds 12 chunks. Fly home, dock, and drop the ore
   into the deposit tank. Refuel at the fuel station.
+- **The islands.** Fourteen islands in four sizes: small ones with just a few resources, mid-size ones with a mountain and a stream, large ones with several peaks and rivers, and one huge island big enough for a full team battle. Mountains feed rivers that carve across the grass and pour off the edge as waterfalls. Walking trails wind over the meadows and switchback up the peaks.
+- **Tools and monsters.** Everyone carries a laser pistol and a pick axe. On foot you can swing the pick axe (`1`) or fire the laser (`2`) with left-click. Both mine ore, and the laser works from a distance. Every time you land there is a 50/50 chance the trees come alive: some of the nearest ones uproot and chase you. Fight them or run back to your ship. If you are overwhelmed you wake beside the ship minus half your ore.
 - **Explore the ship.** Walk the whole Executor in first person: hangar, corridor, bridge, crew quarters,
   engineering (with the reactor) and the cargo hold.
 - **Storms and upgrades.** Ion storms roam the Reach and damage pilots. Spend Aetherite on per-ship upgrades (engine,
@@ -92,7 +94,8 @@ refuse to sail below its reserve.
 | Action | Input |
 |---|---|
 | Move / run / look | WASD / Shift / mouse |
-| Mine ore | hold E next to the glowing ore |
+| Pick axe / laser gun | 1 / 2 |
+| Use the tool (mine ore, fight) | left-click, or hold E for the pick axe |
 | Board your ship and lift off | F next to it |
 | Map | N |
 
@@ -104,7 +107,7 @@ The executable accepts a few command-line flags:
 
 | Flag | What it does |
 |---|---|
-| `--selftest` | Headless checks of the simulation: orders, upgrades, Executor navigation, hangar stations, captain flight and mining, save/load and long soaks |
+| `--selftest` | Headless checks of the simulation: orders, upgrades, Executor navigation, hangar stations, island terrain and placement, captain flight, mining and tree monsters, save/load and long soaks |
 | `--uitest` | In-engine checks driven by injected mouse clicks: picking, helm, orders, walking, boarding, landing, mining, deposit, save/continue |
 | `--audiotest` | Verifies the audio device and music stream |
 | `--bench` | Frame-time benchmark at 1080p |
@@ -116,8 +119,9 @@ The executable accepts a few command-line flags:
 |---|---|
 | `Data.cs`, `Sim.cs`, `Walk.cs` | Game data, simulation (including the Executor, stations and captain), save/load and walk collision (no rendering) |
 | `Gfx.cs` | Merged-mesh builder, lighting shader, procedural textures |
-| `Scene.cs`, `Interior.cs` | Procedural models: islands, the Executor, ships, crew, interior rooms |
-| `Game.cs`, `Captain.cs`, `Hud.cs`, `Audio.cs` | Main loop and rendering, the captain's ship modes, UI and input, synthesized audio |
+| `Terrain.cs`, `IslandGen.cs` | Island terrain (mountains, rivers, trails, trees) and the meshes built from it |
+| `Scene.cs`, `Interior.cs` | Procedural models: the Executor, ships, crew, interior rooms |
+| `Game.cs`, `Captain.cs`, `Tools.cs`, `Hud.cs`, `Portrait.cs`, `Audio.cs` | Main loop and rendering, the captain's ship modes, pick axe and laser, UI, portraits, synthesized audio |
 | `SelfTest.cs`, `Demo.cs` | Test and benchmark harnesses |
 
 ## Performance
