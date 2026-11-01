@@ -12,13 +12,11 @@ public sealed class Mul32
     }
 }
 
-public sealed class IslandGfx { public Mesh Rock; public Mesh Crystal; public float Top, Wx, Wz, R; }
 public sealed class GlowDef { public Vector3 Pos; public float Size; public Color Col; public float Op; }
 public sealed class ShipGfx { public Mesh Mesh; public List<GlowDef> Glows = new(); public float Boost; }
 
 public static class Scene
 {
-    public static float GroundH(float R, float lx, float lz) => .12f * R + Noise3(lx * .08f, 0, lz * .08f) * .025f * R;
     public static float Noise3(float x, float y, float z) => MathF.Sin(x * 1.3f + y * .7f) * MathF.Cos(z * 1.1f - y * .9f) + .5f * MathF.Sin(x * 2.9f + z * 2.3f + y * 1.7f);
     public static Color Hsl(float h, float s, float l)
     {
@@ -45,84 +43,6 @@ public static class Scene
             f = nf;
         }
         return (v, f);
-    }
-
-    // ---------- islands ----------
-    public static IslandGfx BuildIsland(int seed, float R, bool eva = false)
-    {
-        var r = new Mul32(seed); var mb = new MeshBuilder();
-        // rock underside
-        var (iv, ifc) = Icosphere(3); var pos = new Vector3[iv.Count]; var cols = new Color[iv.Count];
-        for (int k = 0; k < iv.Count; k++)
-        {
-            float x = iv[k].X * R, y = iv[k].Y * R, z = iv[k].Z * R;
-            if (y > 0) y *= .06f; else { float f = 1 - MathF.Min(1, -y / R) * .82f; x *= f; z *= f; y *= 1.5f; }
-            float n = Noise3(x * .05f, y * .04f, z * .05f) * R * .06f; x += n; z += n * .8f; y += n * .5f;
-            pos[k] = new Vector3(x, y, z);
-            float d = MathF.Min(1, -y / (R * 1.4f)), lo = Noise3(x * .2f, y * .2f, z * .2f) * .03f;
-            cols[k] = new Color((byte)Math.Clamp((.42f - d * .22f + lo) * 255, 0, 255), (byte)Math.Clamp((.33f - d * .17f + lo) * 255, 0, 255), (byte)Math.Clamp((.29f - d * .1f + lo) * 255, 0, 255), (byte)255);
-        }
-        foreach (var tr in ifc) mb.Tri(pos[tr[0]], pos[tr[1]], pos[tr[2]], Col.Lerp(Col.Lerp(cols[tr[0]], cols[tr[1]], .5f), cols[tr[2]], .34f));
-        // grass cap
-        float gy = R * .04f, ytop = R * .07f, ybot = -R * .07f; const int SEG = 40, RINGS = 6;
-        Vector3 GP(int ring, int s)
-        {
-            float a = s * MathF.Tau / SEG, rr = R * .99f * ring / RINGS, x = MathF.Cos(a) * rr, z = MathF.Sin(a) * rr;
-            return new Vector3(x, gy + ytop + Noise3(x * .08f, 0, z * .08f) * R * .025f + R * .01f, z);
-        }
-        Color GC(Vector3 p, float t) => Hsl(.3f + Noise3(p.X * .1f, 0, p.Z * .1f) * .02f, .5f, .28f * t + .05f + Noise3(p.X * .15f, 1, p.Z * .15f) * .03f);
-        for (int ring = 0; ring < RINGS; ring++)
-            for (int s = 0; s < SEG; s++)
-            {
-                int s2 = (s + 1) % SEG; Vector3 a = GP(ring, s), b = GP(ring, s2), c = GP(ring + 1, s2), d = GP(ring + 1, s);
-                var cc = GC((a + c) / 2, 1);
-                if (ring == 0) mb.Tri(a, c, d, cc); else { mb.Tri(a, b, c, cc); mb.Tri(a, c, d, cc); }
-            }
-        for (int s = 0; s < SEG; s++)
-        {
-            int s2 = (s + 1) % SEG; var a = GP(RINGS, s); var b = GP(RINGS, s2);
-            float ang0 = s * MathF.Tau / SEG, ang1 = s2 * MathF.Tau / SEG;
-            var a2 = new Vector3(MathF.Cos(ang0) * R * .9f, gy + ybot, MathF.Sin(ang0) * R * .9f); var b2 = new Vector3(MathF.Cos(ang1) * R * .9f, gy + ybot, MathF.Sin(ang1) * R * .9f);
-            var sc = GC(a, .4f); mb.Tri(a, b, b2, sc); mb.Tri(a, b2, a2, sc);
-        }
-        float top = R * .13f;
-        float wa = r.Next() * 6.283f, wr = R * .93f;
-        // trees
-        int placed = 0;
-        int NT = eva ? 110 : 46;
-        for (int k = 0; k < NT * 3 && placed < NT; k++)
-        {
-            float a = r.Next() * 6.283f, d = MathF.Sqrt(r.Next()) * R * .84f, x = MathF.Cos(a) * d, z = MathF.Sin(a) * d;
-            if (Mx.Hypot(x + R * .25f, z + R * .1f) < R * .2f) continue;
-            if (Mx.Hypot(x + R * .25f, z - R * .16f) < R * .14f) continue; // keep the captain's landing spot clear
-            if (MathF.Abs((((a - wa + 3.1416f) % 6.2832f) + 6.2832f) % 6.2832f - 3.1416f) < .18f && d > R * .7f) continue;
-            float h = eva ? R * (.03f + r.Next() * .035f) : R * (.12f + r.Next() * .17f), y = top + Noise3(x * .08f, 0, z * .08f) * R * .02f - R * .02f;
-            mb.CylY(.008f * R * h * .2f, .005f * R * h * .2f, h * .45f, x, y + h * .225f, z, C(0x5a4030), 5);
-            var c1 = Hsl(.27f + r.Next() * .1f, .5f, .16f + r.Next() * .1f);
-            mb.CylY(h * .31f, 0, h * .62f, x, y + h * .2f + h * .31f, z, c1, 7);
-            var c2 = Col.Mul(c1, 1.25f);
-            mb.CylY(h * .23f, 0, h * .55f, x, y + h * .52f + h * .275f, z, c2, 7);
-            placed++;
-        }
-        // brush
-        for (int k = 0; k < 34; k++)
-        {
-            float a = r.Next() * 6.283f, d = MathF.Sqrt(r.Next()) * R * .92f, x = MathF.Cos(a) * d, z = MathF.Sin(a) * d, s2 = R * (.025f + r.Next() * .04f);
-            var c = Hsl(.22f + r.Next() * .14f, .5f, .18f + r.Next() * .1f); if (r.Next() < .18f) c = Hsl(.9f + r.Next() * .08f, .6f, .45f);
-            mb.Sphere(s2, x, top + s2 * .3f, z, c, 1.4f, 1, 1.4f, 0, 3, 6);
-        }
-        // pool
-        float wx = MathF.Cos(wa) * wr, wz = MathF.Sin(wa) * wr;
-        mb.CylY(R * .1f, R * .1f, .6f, wx * .96f, top + .3f, wz * .96f, C(0x6fc8ff), 16, 120);
-        // crystals (unit scale, separate mesh so it can pulse)
-        var cm = new MeshBuilder(); var cc2 = C(0x9d86ff);
-        (float dx, float dz, float h)[] cl = { (0, 0, 1.0f), (.5f, .2f, .65f), (-.45f, .1f, .7f), (.15f, -.5f, .55f), (-.2f, .5f, .5f) };
-        for (int k = 0; k < cl.Length; k++)
-        {
-            cm.T = Matrix4x4.CreateScale(.8f, cl[k].h * 3.2f, .8f) * Matrix4x4.CreateRotationZ((2 - k) * .12f) * Matrix4x4.CreateRotationY(k) * Matrix4x4.CreateTranslation(cl[k].dx * .09f, cl[k].h * .1f, cl[k].dz * .09f);
-            cm.Octa(.07f, 1, cc2, 255);
-        }
-        return new IslandGfx { Rock = mb.Build(), Crystal = cm.Build(), Top = top, Wx = wx, Wz = wz, R = R };
     }
 
     // ---------- The Executor ----------

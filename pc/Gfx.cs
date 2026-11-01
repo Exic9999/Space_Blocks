@@ -13,7 +13,7 @@ public static class Col
 // Collects non-indexed lit triangles. Vertex alpha = emissive amount (0 lit .. 255 fully self-lit).
 public sealed unsafe class MeshBuilder
 {
-    readonly List<float> v = new(), n = new(); readonly List<byte> c = new();
+    readonly List<float> v = new(), n = new(), uv = new(); readonly List<byte> c = new();
     public Matrix4x4 T = Matrix4x4.Identity;
     public int Tris => v.Count / 9;
 
@@ -31,10 +31,25 @@ public sealed unsafe class MeshBuilder
     {
         Push(P(a), N(na), col, emis); Push(P(b), N(nb), col, emis); Push(P(cc), N(nc), col, emis);
     }
-    void Push(Vector3 p, Vector3 nn, Color col, int emis)
+    void Push(Vector3 p, Vector3 nn, Color col, int emis, float u = 0, float w = 0)
     {
-        v.Add(p.X); v.Add(p.Y); v.Add(p.Z); n.Add(nn.X); n.Add(nn.Y); n.Add(nn.Z);
+        uv.Add(u); uv.Add(w); v.Add(p.X); v.Add(p.Y); v.Add(p.Z); n.Add(nn.X); n.Add(nn.Y); n.Add(nn.Z);
         c.Add(col.R); c.Add(col.G); c.Add(col.B); c.Add((byte)emis);
+    }
+    // per-vertex normals, colours and texture coordinates (terrain, water, trails)
+    public void TriFull(Vector3 a, Vector3 b, Vector3 cc, Vector3 na, Vector3 nb, Vector3 nc, Color ca, Color cb, Color cc2, Vector2 ua, Vector2 ub, Vector2 uc, int emis = 0)
+    {
+        Push(P(a), N(na), ca, emis, ua.X, ua.Y); Push(P(b), N(nb), cb, emis, ub.X, ub.Y); Push(P(cc), N(nc), cc2, emis, uc.X, uc.Y);
+    }
+    // copy another builder's geometry with a transform and a brightness tint (used to bake many trees into one mesh)
+    public void Append(MeshBuilder o, Matrix4x4 xf, float tint = 1f)
+    {
+        Matrix4x4.Invert(xf, out var inv); var nm = Matrix4x4.Transpose(inv);
+        for (int k = 0; k < o.v.Count; k += 3)
+        {
+            var p = Vector3.Transform(new Vector3(o.v[k], o.v[k + 1], o.v[k + 2]), xf); var nn = Vector3.Normalize(Vector3.TransformNormal(new Vector3(o.n[k], o.n[k + 1], o.n[k + 2]), nm)); int ci = k / 3 * 4, ui = k / 3 * 2;
+            Push(P(p), N(nn), new Color((byte)Math.Min(255, o.c[ci] * tint), (byte)Math.Min(255, o.c[ci + 1] * tint), (byte)Math.Min(255, o.c[ci + 2] * tint), o.c[ci + 3]), o.c[ci + 3], o.uv[ui], o.uv[ui + 1]);
+        }
     }
     public void Quad(Vector3 a, Vector3 b, Vector3 cc, Vector3 d, Color col, int emis = 0) { Tri(a, b, cc, col, emis); Tri(a, cc, d, col, emis); }
 
@@ -115,8 +130,9 @@ public sealed unsafe class MeshBuilder
         m.Colors = (byte*)Raylib.MemAlloc((uint)c.Count); m.TexCoords = (float*)Raylib.MemAlloc((uint)(v.Count / 3 * 2 * 4));
         for (int i = 0; i < v.Count; i++) { m.Vertices[i] = v[i]; m.Normals[i] = n[i]; }
         for (int i = 0; i < c.Count; i++) m.Colors[i] = c[i];
-        for (int i = 0; i < v.Count / 3 * 2; i++) m.TexCoords[i] = 0;
+        for (int i = 0; i < uv.Count; i++) m.TexCoords[i] = uv[i];
         Raylib.UploadMesh(ref m, false);
+        Raylib.MemFree(m.Vertices); m.Vertices = null; Raylib.MemFree(m.Normals); m.Normals = null; Raylib.MemFree(m.Colors); m.Colors = null; Raylib.MemFree(m.TexCoords); m.TexCoords = null; // the GPU has it now; drop the CPU copy
         return m;
     }
 }
@@ -248,4 +264,46 @@ public static class Tex
         }
         var t = Raylib.LoadTextureFromImage(img); Raylib.UnloadImage(img); Raylib.SetTextureFilter(t, TextureFilter.Bilinear); return t;
     }
+}
+
+// Animated water: flowing streaks, edge foam, sun glints; vertex colour = tint, alpha = how much of a waterfall it is (0 river .. 1 fall).
+public sealed unsafe class WaterShader
+{
+    public Shader Sh; public Material Mat; readonly int locTime, locView, locSun;
+    const string VS = @"#version 330
+layout(location=0) in vec3 vertexPosition; layout(location=1) in vec2 vertexTexCoord; layout(location=3) in vec4 vertexColor;
+uniform mat4 mvp; uniform mat4 matModel; out vec2 uv; out vec4 col; out vec3 wpos;
+void main(){ uv=vertexTexCoord; col=vertexColor; wpos=(matModel*vec4(vertexPosition,1.0)).xyz; gl_Position=mvp*vec4(vertexPosition,1.0); }";
+    const string FS = @"#version 330
+in vec2 uv; in vec4 col; in vec3 wpos; out vec4 finalColor; uniform float uTime; uniform vec3 viewPos; uniform vec3 uSun;
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
+void main(){
+  float fall=col.a; float speed=mix(0.45,2.2,fall);
+  vec2 p=vec2(uv.x*3.2, uv.y*2.2-uTime*speed);
+  float w1=sin(p.y*7.0+sin(p.x*5.0+uTime*0.8)*1.6)*0.5+0.5, w2=sin(p.y*13.0-p.x*8.0+uTime*speed*1.7)*0.5+0.5, w3=sin(p.y*21.0+p.x*4.0-uTime*speed*2.3)*0.5+0.5;
+  float streak=smoothstep(0.60,0.95,w1*0.5+w2*0.35+w3*0.25);
+  vec3 deep=col.rgb*0.55, shallow=col.rgb*1.25;
+  vec3 base=mix(deep,shallow,w1*0.55+0.2);
+  base=mix(base,vec3(0.92,0.98,1.0),streak*(0.30+0.55*fall));
+  float edge=smoothstep(0.0,0.16,uv.x)*smoothstep(1.0,0.84,uv.x);
+  base=mix(vec3(0.88,0.96,1.0),base,mix(0.55,1.0,edge));
+  vec3 n=normalize(vec3((w2-0.5)*0.12,1.0,(w3-0.5)*0.12)); vec3 L=normalize(uSun); vec3 V=normalize(viewPos-wpos);
+  float spec=pow(max(dot(reflect(-L,n),V),0.0),70.0); float fres=pow(1.0-max(dot(n,V),0.0),3.0);
+  vec3 c=base*(0.55+0.45*max(dot(n,L),0.0)+0.25)+vec3(1.0,0.97,0.9)*spec*0.9+vec3(0.5,0.7,1.0)*fres*0.25*(1.0-fall);
+  float d=length(viewPos-wpos); float fg=1.0-exp(-pow(0.00007*d,2.0)); c=mix(c,vec3(0.01,0.02,0.06),clamp(fg,0.0,1.0));
+  float a=mix(0.84,0.72,fall)*(0.55+0.45*edge); finalColor=vec4(pow(aces(c),vec3(1.0/2.2)),a);
+}";
+    public WaterShader()
+    {
+        Sh = Raylib.LoadShaderFromMemory(VS, FS); Sh.Locs[(int)ShaderLocationIndex.MatrixModel] = Raylib.GetShaderLocation(Sh, "matModel");
+        locTime = Raylib.GetShaderLocation(Sh, "uTime"); locView = Raylib.GetShaderLocation(Sh, "viewPos"); locSun = Raylib.GetShaderLocation(Sh, "uSun");
+        Mat = Raylib.LoadMaterialDefault(); Mat.Shader = Sh;
+    }
+    public void Begin(float t, Vector3 cam)
+    {
+        float tt = t; Raylib.SetShaderValue(Sh, locTime, &tt, ShaderUniformDataType.Float);
+        float* p = stackalloc float[3] { cam.X, cam.Y, cam.Z }; Raylib.SetShaderValue(Sh, locView, p, ShaderUniformDataType.Vec3);
+        float* s = stackalloc float[3] { -.5f, .75f, .38f }; Raylib.SetShaderValue(Sh, locSun, s, ShaderUniformDataType.Vec3);
+    }
+    public void Draw(Mesh mesh, Matrix4x4 xf) => Raylib.DrawMesh(mesh, Mat, Matrix4x4.Transpose(xf));
 }

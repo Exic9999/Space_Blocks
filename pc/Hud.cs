@@ -92,7 +92,7 @@ public sealed unsafe partial class Game
             if (dragging && mouseUp) { dragging = false; if (dragMoved < 10) Tap(mouse); }
             if (Raylib.IsMouseButtonPressed(MouseButton.Right) && !UiOver() && sel != null)
             {
-                var ray = Raylib.GetScreenToWorldRay(mouse, cam3); foreach (var i in sim.G.isl) if (i.found && Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * 1.25f).Hit) { selIsl = i; Order("lock"); break; }
+                var ray = Raylib.GetScreenToWorldRay(mouse, cam3); foreach (var i in sim.G.isl) if (i.found && Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * .9f).Hit) { selIsl = i; Order("lock"); break; }
             }
             float wheel = Raylib.GetMouseWheelMove(); if (wheel != 0 && !UiOver()) cam.dist = Math.Clamp(cam.dist * (wheel > 0 ? .9f : 1.12f), 250, 5500);
             if (Raylib.IsKeyDown(KeyboardKey.Z)) cam.dist = Math.Max(250, cam.dist * (1 - dt * 1.5f)); if (Raylib.IsKeyDown(KeyboardKey.X)) cam.dist = Math.Min(5500, cam.dist * (1 + dt * 1.5f));

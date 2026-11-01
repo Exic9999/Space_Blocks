@@ -62,8 +62,8 @@ public sealed class IslandShape
         float h = Raw(x, z); float fw = FlatWeight(x, z, out float ft); if (fw > 0) h = h * (1 - fw) + ft * fw;
         if (Rivers.Count > 0)
         {
-            float d = RiverDist(x, z, out float w); float reach = w * 2.2f;
-            if (d < reach) { float depth = MathF.Max(.7f, w * .6f), u = 1 - d / reach; h -= depth * u * u * (1 - fw); }
+            float d = RiverDist(x, z, out float w); float reach = w * 3.2f;
+            if (d < reach) { float depth = MathF.Max(.9f, w * .75f), u = 1 - d / reach; h -= depth * u * u * (1 - fw); }
         }
         if (PondR > 0) { float d = MathF.Sqrt((x - Pond.X) * (x - Pond.X) + (z - Pond.Y) * (z - Pond.Y)); if (d < PondR * 1.8f) { float u = 1 - d / (PondR * 1.8f); h -= 1.0f * u * u * (1 - fw); } }
         return h;
@@ -126,7 +126,7 @@ public sealed class IslandShape
             foreach (var f in Flats) if (Hyp(p.X - f.x, p.Y - f.z) < f.r + 12) ok = false; if (ok) { start = p; dir = d; found = true; }
         }
         if (!found) return;
-        var rv = new River { W = Math.Clamp(R * .016f, 1.2f, 4.2f) }; rv.Depth = MathF.Max(.7f, rv.W * .6f);
+        var rv = new River { W = Math.Clamp(R * .016f, 1.2f, 4.2f) }; rv.Depth = MathF.Max(.9f, rv.W * .75f);
         var pos = start; var v = dir; float ds = MathF.Max(R / 80f, 1.1f); rv.P.Add(pos); float hStall = Raw(pos.X, pos.Y); int stall = 0; bool reached = false;
         for (int step = 0; step < 900 && !reached; step++)
         {
@@ -146,7 +146,7 @@ public sealed class IslandShape
     }
     void FinishRiverHeights()
     {
-        foreach (var rv in Rivers) { rv.Y.Clear(); float prev = float.MaxValue; foreach (var p in rv.P) { float y = Height(p.X, p.Y) + rv.Depth * .45f; y = MathF.Min(y, prev - .01f); rv.Y.Add(y); prev = y; } }
+        foreach (var rv in Rivers) { rv.Y.Clear(); float prev = float.MaxValue; foreach (var p in rv.P) { float y = Height(p.X, p.Y) + rv.Depth * .32f; y = MathF.Min(y, prev - .01f); rv.Y.Add(y); prev = y; } }
     }
 
     // ---------- trails (A* on a coarse grid, water blocked, slope penalised) ----------
@@ -174,7 +174,8 @@ public sealed class IslandShape
                 }
             }
             if (par[t0] < 0 && t0 != s0) return null; var pts = new List<Vector2>(); for (int c = t0; c >= 0; c = par[c]) { pts.Add(new Vector2(o + (c / n) * cs, o + (c % n) * cs)); if (c == s0) break; }
-            pts.Reverse(); for (int it = 0; it < 2 && pts.Count > 2; it++) { var q = new List<Vector2> { pts[0] }; for (int i = 0; i + 1 < pts.Count; i++) { q.Add(pts[i] * .75f + pts[i + 1] * .25f); q.Add(pts[i] * .25f + pts[i + 1] * .75f); } q.Add(pts[^1]); pts = q; }
+            pts.Reverse(); for (int pass = 0; pass < 6 && pts.Count > 4; pass++) for (int k = 1; k + 1 < pts.Count - 1; k++) pts[k] = pts[k] * .5f + (pts[k - 1] + pts[k + 1]) * .25f; // relax the grid zig-zag
+            for (int it = 0; it < 2 && pts.Count > 2; it++) { var q = new List<Vector2> { pts[0] }; for (int i = 0; i + 1 < pts.Count; i++) { q.Add(pts[i] * .75f + pts[i + 1] * .25f); q.Add(pts[i] * .25f + pts[i + 1] * .75f); } q.Add(pts[^1]); pts = q; }
             return pts;
         }
         void Add(Vector2 a, Vector2 b) { var p = Path(a, b); if (p != null && p.Count >= 3) Trails.Add(p); }
@@ -216,6 +217,6 @@ public sealed class IslandShape
 public static class Terrain
 {
     static readonly Dictionary<(int, int), IslandShape> cache = new();
-    public static IslandShape Get(int seed, float R) { var k = (seed, (int)MathF.Round(R * 10)); if (!cache.TryGetValue(k, out var s)) cache[k] = s = new IslandShape(seed, R); return s; }
+    public static IslandShape Get(int seed, float R) { var k = (seed, (int)MathF.Round(R * 10)); lock (cache) { if (!cache.TryGetValue(k, out var s)) cache[k] = s = new IslandShape(seed, R); return s; } }
     public static IslandShape Get(Island i) => Get(i.seed, i.s);
 }

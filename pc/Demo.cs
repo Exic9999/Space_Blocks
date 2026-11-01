@@ -11,20 +11,21 @@ public sealed unsafe partial class Game
         sim.Rng = new Random(7); sim.NewGame(1234); sel = sim.G.ships[0]; selIsl = null; ResetViews(); mode = Mode.Cmd;
         foreach (var s in sim.G.ships) sim.GiveOrder(s, "auto");
         for (int i = 0; i < (int)(simSeconds / .1f); i++) { sim.Step(.1f); if (i % 600 == 0) foreach (var s in sim.G.ships) sim.GiveOrder(s, "auto"); }
-        sim.Logs.Clear(); sim.Talk = null;
+        sim.Logs.Clear(); sim.Talk = null; WaitIslands();
     }
+    void WaitIslands() { var sw = System.Diagnostics.Stopwatch.StartNew(); while (sim.G.isl.Any(i => islVis[i.id]?.Gfx == null) && sw.Elapsed.TotalSeconds < 40) { Frame(1f / 120); Thread.Sleep(10); } }
     void Snap(string path, int frames = 45) { for (int i = 0; i < frames; i++) Frame(1f / 60); var img = Raylib.LoadImageFromScreen(); Raylib.ExportImage(img, path); Raylib.UnloadImage(img); }
 
     public int RunDemo(string scen, string outPath)
     {
-        Init(false, 1280, 720); Prep(scen == "storm" ? 200 : 260);
+        Init(false, 1280, 720); Prep(scen == "storm" ? 200 : 260); { var ts = scen; _ = ts; }
         if (scen == "storm") { sim.G.nextStorm = 0; for (int i = 0; i < 700; i++) sim.Step(.1f); }
         switch (scen)
         {
             case "title": sim.NewGame(1234); ResetViews(); mode = Mode.Title; break;
             case "cmd": cam.dist = 2300; cam.el = .55f; break;
             case "follow": sel = sim.G.ships[1]; cam.follow = sel; cam.dist = 600; cam.el = .35f; for (int i = 0; i < 60; i++) { Frame(1f / 30); } break;
-            case "island": { var i = sim.G.isl[0]; cam.follow = null; cam.tx = i.x; cam.ty = i.h; cam.tz = i.y; cam.dist = 420; cam.el = .3f; selIsl = i; break; }
+            case "island": case "island-big": case "island-med": case "island-small": { var il = sim.G.isl; Island i = scen == "island-big" ? il.OrderByDescending(o => o.s).First() : scen == "island-small" ? il.OrderBy(o => o.s).First() : scen == "island-med" ? il.OrderBy(o => Math.Abs(o.s - 100)).First() : il[0]; i.found = true; for (int q = 0; q < 20; q++) Frame(1f / 30); cam.follow = null; execFollow = false; cam.tx = i.x; cam.ty = i.h; cam.tz = i.y; cam.dist = i.s * 3.0f + 150; cam.el = .42f; cam.az = .9f; selIsl = null; break; }
             case "exec": cam.dist = 700; cam.el = .4f; cam.az = 2.6f; break;
             case "storm": cam.dist = 2000; cam.el = .5f; if (sim.G.storms.Count > 0) { var q = sim.G.storms[0]; cam.tx = q.x; cam.tz = q.y; cam.dist = q.r * 3.2f; } break;
             case "walk-bridge": EnterWalk(); walk.x = 2; walk.z = -26; break;
@@ -36,6 +37,11 @@ public sealed unsafe partial class Game
             case "cap-hangar": SetMode(Mode.Walk); walk.x = 3.5f; walk.z = 9; walk.yaw = -1.1f; walk.pitch = -.12f; break;
             case "cap-fly": { sim.G.aeth = 300; foreach (var s2 in sim.G.ships) sim.GiveOrder(s2, "hold"); sim.CapLaunch(); for (int i = 0; i < 70; i++) sim.Step(.1f); selIsl = sim.G.isl[0]; selIsl.found = true; sim.Piloted = true; sim.InThr = 1; for (int i = 0; i < 40; i++) sim.Step(.1f); sim.InThr = 0; sim.CapAutoGoto(selIsl); for (int i = 0; i < 60; i++) sim.Step(.1f); lastCapState = sim.G.cap.state; mode = Mode.Fly; capCamInit = false; for (int i = 0; i < 30; i++) Frame(1f / 60); break; }
             case "cap-eva": { sim.G.aeth = 300; foreach (var s2 in sim.G.ships) sim.GiveOrder(s2, "hold"); sim.CapLaunch(); for (int i = 0; i < 70; i++) sim.Step(.1f); var ti = sim.G.isl[0]; ti.found = true; sim.CapAutoGoto(ti); for (int i = 0; i < 1500 && sim.G.cap.state != "landed"; i++) sim.Step(.1f); var nd = Sim.OreNodes(ti); var cc2 = sim.G.cap; cc2.ex = nd[0].x - 4; cc2.ez = nd[0].z + 3; evaYaw = MathF.Atan2(-(nd[0].x - cc2.ex), -(nd[0].z - cc2.ez)); evaPitch = -.15f; lastCapState = cc2.state; SetMode(Mode.Eva); for (int i = 0; i < 40; i++) Frame(1f / 60); break; }
+            case "eva-river": case "eva-trail": case "eva-summit": { sim.G.aeth = 300; var il2 = sim.G.isl.Where(o => Terrain.Get(o).Rivers.Count > 0 && Terrain.Get(o).Trails.Count > 1).OrderBy(o => o.s).First(); il2.found = true; var shp = Terrain.Get(il2); Vector2 at; float yw;
+                if (scen == "eva-river") { var rv = shp.Rivers[0]; var p0 = rv.P[Math.Min(rv.P.Count - 1, rv.P.Count / 3)]; var p1 = rv.P[Math.Min(rv.P.Count - 1, rv.P.Count / 3 + 2)]; var d = Vector2.Normalize(p1 - p0); at = p0 + new Vector2(-d.Y, d.X) * 9 - d * 4; yw = MathF.Atan2(-(p0.X - at.X), -(p0.Y - at.Y)); }
+                else if (scen == "eva-trail") { var tr0 = shp.Trails.OrderByDescending(t => t.Count).First(); at = tr0[tr0.Count / 3]; var nx = tr0[Math.Min(tr0.Count - 1, tr0.Count / 3 + 6)]; yw = MathF.Atan2(-(nx.X - at.X), -(nx.Y - at.Y)); }
+                else { at = shp.Pad; var sp = shp.SummitPos; yw = MathF.Atan2(-(sp.X - at.X), -(sp.Y - at.Y)); }
+                var cp = sim.G.cap; cp.state = "landed"; cp.island = il2.id; cp.ex = at.X; cp.ez = at.Y; evaYaw = yw; evaPitch = scen == "eva-summit" ? .12f : -.12f; lastCapState = "landed"; SetMode(Mode.Eva); for (int q = 0; q < 30; q++) Frame(1f / 30); break; }
             case "walk-corridor": SetMode(Mode.Walk); walk.x = 0; walk.z = -8; walk.yaw = 0; break;
             case "cabin": OpenCabin(sim.G.ships[0]); break;
             case "sail": { sim.G.aeth = 400; sim.SailTo(sim.G.exx + 500, sim.G.exy - 700); for (int i = 0; i < 700; i++) sim.Step(.1f); cam.dist = 900; cam.el = .5f; cam.az = 1.2f; selExec = true; execFollow = true; for (int i = 0; i < 50; i++) Frame(1f / 30); break; }
@@ -71,7 +77,7 @@ public sealed unsafe partial class Game
         Phase("cmd close", () => { cam.dist = 500; cam.tx = sim.G.exx; cam.tz = sim.G.exy + 100; });
         Phase("walk hangar", () => { SetMode(Mode.Walk); walk.x = 0; walk.z = 20; walk.yaw = 0; });
         Phase("walk bridge", () => { walk.x = 2; walk.z = -26; walk.yaw = 0; });
-        var proc = Process.GetCurrentProcess(); Console.WriteLine($"working set {proc.WorkingSet64 / 1048576} MB, gen0 GCs {GC.CollectionCount(0)}, gen2 GCs {GC.CollectionCount(2)}");
+        var proc = Process.GetCurrentProcess(); Console.WriteLine($"managed heap {GC.GetTotalMemory(true) / 1048576} MB, private {proc.PrivateMemorySize64 / 1048576} MB"); Console.WriteLine($"working set {proc.WorkingSet64 / 1048576} MB, gen0 GCs {GC.CollectionCount(0)}, gen2 GCs {GC.CollectionCount(2)}");
         Raylib.CloseWindow(); return 0;
     }
 }

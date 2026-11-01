@@ -6,7 +6,7 @@ namespace SpaceBlocks;
 public enum Mode { Title, Cmd, Walk, Cabin, Fly, Eva }
 
 public sealed class CamState { public float az = .6f, el = .5f, dist = 1500, tx = Data.CX, ty = 0, tz = Data.CY; public Ship? follow; }
-public sealed class IslandVis { public IslandGfx? Gfx, EvaGfx; public float shown; }
+public sealed class IslandVis { public IslandGfx? Gfx; public float shown; }
 public sealed class ShipVis { public ShipGfx? Gfx; public string Sig = ""; public Matrix4x4 Ext, Int; public bool ExtVis, IntVis; public Vector3 ExtPos; }
 
 public sealed unsafe partial class Game
@@ -24,7 +24,8 @@ public sealed unsafe partial class Game
     Mesh execHull, execTanks; List<GlowDef> execGlows = new();
     Mesh intMesh, intTank, intTankFuel; List<PtLight> intLights = new(); List<ScreenDef> intScreens = new();
     readonly IslandVis[] islVis = new IslandVis[14]; readonly ShipVis[] shipVis = new ShipVis[5];
-    IslandGfx? windowIsland;
+    readonly Dictionary<int, Task<IslandBuilder.IslandPrep>> islTasks = new(); readonly SemaphoreSlim islGate = new(2); bool gcDone;
+    IslandGfx? windowIsland; WaterShader water = null!; readonly Mesh[,] nearTree = new Mesh[3, 2]; bool nearTreeBuilt;
     (Mesh body, Mesh arm, Mesh leg)[] figs = new (Mesh, Mesh, Mesh)[5];
     Camera3D cam3, icam;
     Vector3 camPos;
@@ -45,12 +46,13 @@ public sealed unsafe partial class Game
         lit = new LitShader();
         { var wi = Raylib.GenImageColor(4, 4, Color.White); whiteTex = Raylib.LoadTextureFromImage(wi); Raylib.UnloadImage(wi); }
         glowTex = Tex.Glow(); reticleTex = Tex.Reticle(); fallTex = Tex.Waterfall(); skyTex = Tex.Sky();
-        skyModel = Raylib.LoadModelFromMesh(Raylib.GenMeshSphere(1, 32, 16));
+        skyModel = Raylib.LoadModelFromMesh(Raylib.GenMeshSphere(1, 48, 96));
         skyModel.Materials[0].Maps[(int)MaterialMapIndex.Albedo].Texture = skyTex;
         (execHull, execTanks, execGlows) = Scene.BuildExecutor();
         (intMesh, intTank, intLights, intScreens) = Interior.Build();
         { var fb = new MeshBuilder(); fb.CylY(1.5f, 1.5f, 1, 0, 0, 0, Col.Hex(0x30e0c0), 18, 255, true); intTankFuel = fb.Build(); }
-        windowIsland = Scene.BuildIsland(777, 70);
+        for (int tk = 0; tk < 3; tk++) { IslandBuilder.TreeProto(tk, 0); IslandBuilder.TreeProto(tk, 1); } // warm the shared tree prototypes before worker threads use them
+        windowIsland = IslandBuilder.Build(new Island { seed = 777, s = 70, aeth = 100, max = 100 }); water = new WaterShader();
         for (int i = 0; i < 5; i++) figs[i] = Scene.BuildFigure(i);
         for (int i = 0; i < 3; i++) stormFx[i] = MakeStormFx();
         LoadUiFont();
@@ -78,7 +80,8 @@ public sealed unsafe partial class Game
     }
     void ResetViews()
     {
-        foreach (var o in islVis) if (o?.Gfx != null) { Raylib.UnloadMesh(o.Gfx.Rock); Raylib.UnloadMesh(o.Gfx.Crystal); }
+        islTasks.Clear(); gcDone = false;
+        foreach (var o in islVis) if (o?.Gfx != null) { var og = o.Gfx; Raylib.UnloadMesh(og.Body); Raylib.UnloadMesh(og.FarTrees); Raylib.UnloadMesh(og.Trails); Raylib.UnloadMesh(og.Water); Raylib.UnloadMesh(og.Crystal); if (og.DecorBuilt) Raylib.UnloadMesh(og.Decor); }
         foreach (var o in shipVis) if (o?.Gfx != null) Raylib.UnloadMesh(o.Gfx.Mesh);
         for (int i = 0; i < islVis.Length; i++) islVis[i] = new IslandVis();
         for (int i = 0; i < shipVis.Length; i++) shipVis[i] = new ShipVis();
@@ -137,8 +140,12 @@ public sealed unsafe partial class Game
         foreach (var i in sim.G.isl)
         {
             var v = islVis[i.id]; if (v == null) v = islVis[i.id] = new IslandVis();
-            if (i.found && v.Gfx == null) { v.Gfx = Scene.BuildIsland(i.seed, i.s); v.shown = 0; }
-            if (v.Gfx != null && v.shown < 1) v.shown = Math.Min(1, v.shown + .03f);
+            if (v.Gfx != null && i.found && v.shown < 1) v.shown = Math.Min(1, v.shown + .03f);
+        }
+        {   // island meshes are prepared on worker threads; upload at most two per frame, discovered islands first
+            foreach (var i in sim.G.isl) { var vv = islVis[i.id] ??= new IslandVis(); if (vv.Gfx == null && !islTasks.ContainsKey(i.id)) { var ic = i; islTasks[i.id] = Task.Run(() => { islGate.Wait(); try { return IslandBuilder.Prepare(ic); } finally { islGate.Release(); } }); } }
+            if (!gcDone && sim.G.isl.All(i => islVis[i.id].Gfx != null)) { gcDone = true; GC.Collect(2, GCCollectionMode.Forced, true, true); } // the builders leave a lot of short-lived lists behind
+            int up = 0; foreach (var i in sim.G.isl.OrderByDescending(i => i.found)) { if (up >= 2) break; if (islVis[i.id].Gfx == null && islTasks.TryGetValue(i.id, out var tk) && tk.IsCompletedSuccessfully) { islVis[i.id].Gfx = IslandBuilder.Finish(tk.Result); islVis[i.id].shown = 0; islTasks.Remove(i.id); up++; } }
         }
         foreach (var s in sim.G.ships)
         {
@@ -159,8 +166,9 @@ public sealed unsafe partial class Game
         {
             var v = shipVis[s.idx]; var pad = Data.Pads[s.idx % 5];
             float da = 60; var ti = s.target >= 0 ? sim.G.isl[s.target] : null;
-            if (s.state == "mining" && ti != null) da = ti.h + ti.s * .6f + 25; else if (s.state == "out" && ti != null) da = ti.h + ti.s * .6f + 60;
+            if (s.state == "mining" && ti != null) da = sim.GroundY(ti, Sim.Shape(ti).Clearing.X, Sim.Shape(ti).Clearing.Y) + 30; else if (s.state == "out" && ti != null) da = sim.GroundY(ti, Sim.Shape(ti).Clearing.X, Sim.Shape(ti).Clearing.Y) + 60;
             else if (s.state == "in") { float d = Mx.Hypot(s.x - sim.G.exx, s.y - sim.G.exy); da = d < 500 ? 20 : 60; } else if (s.state is "landing" or "takeoff" or "docked") da = 20;
+            if (s.state is "out" or "in" or "mining") da = MathF.Max(da, sim.CruiseFloor(s.x, s.y)); // fly over mountains, not through them
             s.alt += (da - s.alt) * MathF.Min(1, dt * 1.2f);
             bool ev = true, iv = false; float? yaw = null; float roll = 0;
             Vector3 ep = default, ip = default; float irx = 0, iry = 0;
@@ -234,13 +242,14 @@ public sealed unsafe partial class Game
         // islands
         foreach (var i in G.isl)
         {
-            var v = islVis[i.id]; if (v?.Gfx == null) continue;
-            float bob = sim.Bob(i); float f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed);
-            float sc = MathF.Max(.01f, v.shown);
-            bool onFoot = mode == Mode.Eva && sim.G.cap.state == "landed" && sim.G.cap.island == i.id; if (onFoot && v.EvaGfx == null) v.EvaGfx = Scene.BuildIsland(i.seed, i.s, true);
-            lit.Draw(onFoot && v.EvaGfx != null ? v.EvaGfx.Rock : v.Gfx.Rock, Matrix4x4.CreateScale(sc) * Matrix4x4.CreateTranslation(i.x, i.h + bob, i.y));
-            float R = i.s, cs = (.35f + .65f * f) * R * sc;
-            lit.Draw(v.Gfx.Crystal, Matrix4x4.CreateScale(cs) * Matrix4x4.CreateTranslation(i.x - R * .25f * sc, i.h + bob + v.Gfx.Top * sc, i.y - R * .1f * sc), (.6f + .9f * f) * p);
+            var v = islVis[i.id]; if (v?.Gfx == null || !i.found) continue; var g = v.Gfx;
+            float bob = sim.Bob(i); float f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed); float sc = MathF.Max(.01f, v.shown);
+            var M = Matrix4x4.CreateScale(sc) * Matrix4x4.CreateTranslation(i.x, i.h + bob, i.y); bool onFoot = mode == Mode.Eva && sim.G.cap.state == "landed" && sim.G.cap.island == i.id;
+            lit.Draw(g.Body, M); if (g.HasTrails) lit.Draw(g.Trails, M);
+            if (onFoot) { if (!g.DecorBuilt) IslandBuilder.BuildDecor(g); lit.Draw(g.Decor, M); DrawNearTrees(i, g, M); } else if (g.HasFar) lit.Draw(g.FarTrees, M);
+            var sh = g.Shape; float R = i.s, glow = (.6f + .9f * f) * p, cs = (.35f + .65f * f) * MathF.Min(R, 150) * sc;
+            lit.Draw(g.Crystal, Matrix4x4.CreateScale(cs) * Matrix4x4.CreateTranslation(i.x + sh.Clearing.X * sc, i.h + bob + g.ClearY * sc, i.y + sh.Clearing.Y * sc), glow);
+            foreach (var c in sh.Clusters) lit.Draw(g.Crystal, Matrix4x4.CreateScale((.35f + .65f * f) * 12 * sc) * Matrix4x4.CreateTranslation(i.x + c.X * sc, i.h + bob + sh.Height(c.X, c.Y) * sc, i.y + c.Y * sc), glow);
         }
         // executor
         var exM = ExM;
@@ -249,6 +258,10 @@ public sealed unsafe partial class Game
         // ships
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.ExtVis) lit.Draw(v.Gfx.Mesh, v.Ext); }
         DrawCaptainExt(cam3, t); DrawOreNodes(t);
+        // ---- water (rivers, pools, waterfalls): alpha-blended, animated in the shader ----
+        Rlgl.DisableDepthMask(); water.Begin(t, camPos);
+        foreach (var i in G.isl) { var v = islVis[i.id]; if (v?.Gfx == null || !i.found || !v.Gfx.HasWater) continue; water.Draw(v.Gfx.Water, Matrix4x4.CreateScale(MathF.Max(.01f, v.shown)) * Matrix4x4.CreateTranslation(i.x, i.h + sim.Bob(i), i.y)); }
+        Rlgl.EnableDepthMask();
         // ---- additive / transparent effects ----
         Rlgl.DisableDepthMask(); Raylib.BeginBlendMode(BlendMode.Additive);
         foreach (var g in execGlows) Billboard(cam3, Vector3.Transform(g.Pos, exM), g.Size * (g.Size > 50 && g.Op > .9f ? .92f + .08f * MathF.Sin(t * 9 + g.Pos.X) : 1), Tint(g.Col, g.Op));
@@ -256,11 +269,13 @@ public sealed unsafe partial class Game
         foreach (var i in G.isl)
         {
             var v = islVis[i.id]; float bob = sim.Bob(i);
-            if (v?.Gfx != null)
+            if (v?.Gfx != null && i.found)
             {
-                float R = i.s, sc = MathF.Max(.01f, v.shown), f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed);
-                Billboard(cam3, new(i.x - R * .25f * sc, i.h + bob + (v.Gfx.Top + R * .2f) * sc, i.y - R * .1f * sc), R * .9f * sc, Tint(Col.Hex(0x9d86ff), .8f * f * p));
-                DrawWaterfall(i, v, bob, t);
+                var g = v.Gfx; var sh = g.Shape; float R = i.s, sc = MathF.Max(.01f, v.shown), f = MathF.Max(.15f, i.aeth / i.max), p = .8f + .2f * MathF.Sin(t * 2.4f + i.seed); var origin = new Vector3(i.x, i.h + bob, i.y);
+                Billboard(cam3, origin + new Vector3(sh.Clearing.X, g.ClearY + MathF.Min(R, 150) * .2f, sh.Clearing.Y) * sc, MathF.Min(R, 150) * .9f * sc, Tint(Col.Hex(0x9d86ff), .8f * f * p));
+                foreach (var c in sh.Clusters) Billboard(cam3, origin + new Vector3(c.X, sh.Height(c.X, c.Y) + 3, c.Y) * sc, 16 * sc, Tint(Col.Hex(0x9d86ff), .7f * f * p));
+                float mistSize = MathF.Max(5, MathF.Min(R * .09f, 18)) * sc; for (int k = 0; k < g.Mist.Count; k++) Billboard(cam3, origin + g.Mist[k] * sc, mistSize * (1 + .25f * MathF.Sin(t * 1.7f + k)), Tint(Col.Hex(0xcfe9ff), .28f));
+                foreach (var fl in g.Falls) Billboard(cam3, origin + fl.pos * sc, fl.size * sc * (1 + .15f * MathF.Sin(t * 1.3f + i.id)), Tint(Col.Hex(0xcfe9ff), .35f));
             }
             else Billboard(cam3, new(i.x, i.h + bob, i.y), i.s * 2.2f, Tint(Col.Hex(0x6a8cff), .25f + .15f * MathF.Sin(t * 2 + i.id)));
         }
@@ -271,7 +286,7 @@ public sealed unsafe partial class Game
             if (v.ExtVis) foreach (var g in v.Gfx.Glows) Billboard(cam3, Vector3.Transform(g.Pos, v.Ext), g.Size * Data.ES * v.Gfx.Boost * (gl * (.9f + .15f * MathF.Sin(t * 30 + s.idx)) + .1f), Tint(g.Col, g.Op));
             if (s.state == "mining" && s.target >= 0 && v.ExtVis)
             {
-                var i = G.isl[s.target]; var a = v.ExtPos; var b = new Vector3(i.x - i.s * .25f, i.h + i.s * .14f, i.y - i.s * .1f);
+                var i = G.isl[s.target]; var a = v.ExtPos; var dp = sim.DockPt(i); var b = new Vector3(dp.x, sim.GroundY(i, Sim.Shape(i).Clearing.X, Sim.Shape(i).Clearing.Y) + 1f, dp.y);
                 Raylib.DrawCylinderEx(a, b, 1.1f + MathF.Sin(t * 40) * .35f, 1.1f, 6, Tint(Col.Hex(0xff5a70), .75f));
                 Billboard(cam3, b, 36 + MathF.Sin(t * 30) * 10, Tint(Col.Hex(0xff8aa0), .9f));
             }
@@ -305,17 +320,6 @@ public sealed unsafe partial class Game
     {
         const int N = 64; Vector3 prev = c + new Vector3(r, 0, 0);
         for (int k = 1; k <= N; k++) { float a = k * MathF.Tau / N; var p = c + new Vector3(MathF.Cos(a) * r, 0, MathF.Sin(a) * r); for (int j = -1; j <= 1; j++) Raylib.DrawLine3D(prev + new Vector3(0, j * 2, 0), p + new Vector3(0, j * 2, 0), col); prev = p; }
-    }
-    void DrawWaterfall(Island i, IslandVis v, float bob, float t)
-    {
-        float R = i.s, sc = MathF.Max(.01f, v.shown), top = v.Gfx!.Top * sc;
-        float wx = v.Gfx.Wx * sc, wz = v.Gfx.Wz * sc, h = R * 2.6f * sc, w = R * .16f * sc;
-        float wa = MathF.Atan2(wz, wx); Vector3 right = new(-MathF.Sin(wa), 0, MathF.Cos(wa));
-        Vector3 c = new(i.x + wx, i.h + bob + top - h / 2, i.y + wz); float scroll = -(t * .6f) * 1f, reps = R * 2.4f / 90f * sc;
-        Rlgl.SetTexture(fallTex.Id); Rlgl.Begin(DrawMode.Quads);
-        RlQuadVerts(c - right * w / 2 + new Vector3(0, h / 2, 0), c + right * w / 2 + new Vector3(0, h / 2, 0), c + right * w / 2 - new Vector3(0, h / 2, 0), c - right * w / 2 - new Vector3(0, h / 2, 0), Col.Hex(0xbfe4ff, 230), scroll, scroll + reps * 2);
-        Rlgl.End(); Rlgl.SetTexture(0);
-        Billboard(cam3, new(c.X, i.h + bob + top - h, c.Z), R * .7f * sc, Tint(Col.Hex(0xaee0ff), .35f));
     }
     void DrawStorms(float t)
     {
@@ -388,7 +392,7 @@ public sealed unsafe partial class Game
         lit.SetInterior(icam.Position, lpos.Take(order.Count).ToArray(), lrad.Take(order.Count).ToArray(), lcol.Take(order.Count).ToArray());
         lit.Draw(intMesh, Matrix4x4.Identity);
         // window island
-        lit.SetExterior(icam.Position); lit.Draw(windowIsland!.Rock, Matrix4x4.CreateScale(1.4f) * Matrix4x4.CreateTranslation(-60, -6, -300));
+        lit.SetExterior(icam.Position); lit.Draw(windowIsland!.Body, Matrix4x4.CreateScale(1.4f) * Matrix4x4.CreateTranslation(-60, -6, -300));
         lit.SetInterior(icam.Position, lpos.Take(order.Count).ToArray(), lrad.Take(order.Count).ToArray(), lcol.Take(order.Count).ToArray());
         float fill = MathF.Min(1, G.aeth / 600f);
         for (int ti = 0; ti < Walker.Tanks.Length; ti++)
@@ -456,7 +460,7 @@ public sealed unsafe partial class Game
     {
         var ray = Raylib.GetScreenToWorldRay(m, cam3); float bestD = float.MaxValue; Ship? bs = null; Island? bi = null;
         foreach (var s in sim.G.ships) { var v = shipVis[s.idx]; if (v == null || !v.ExtVis) continue; var h = Raylib.GetRayCollisionSphere(ray, v.ExtPos, 34); if (h.Hit && h.Distance < bestD) { bestD = h.Distance; bs = s; bi = null; } }
-        foreach (var i in sim.G.isl) { var h = Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * 1.25f); if (h.Hit && h.Distance < bestD) { bestD = h.Distance; bi = i; bs = null; } }
+        foreach (var i in sim.G.isl) { var h = Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * .9f); if (h.Hit && h.Distance < bestD) { bestD = h.Distance; bi = i; bs = null; } }
         if (bs != null) { sel = bs; selExec = false; selIsl = null; cam.follow = bs; return; }
         if (bi != null) { selIsl = bi; return; }
         if (selExec && ray.Direction.Y < -1e-4f) { float tt = -ray.Position.Y / ray.Direction.Y; var gp = ray.Position + ray.Direction * tt; sim.SailTo(gp.X, gp.Z); return; }
@@ -464,4 +468,21 @@ public sealed unsafe partial class Game
         var eh = Raylib.GetRayCollisionBox(lray, new BoundingBox(new Vector3(-170, 0, -250), new Vector3(170, 140, 250)));
         if (eh.Hit) { var d = sim.G.ships.FirstOrDefault(s => s.state == "docked"); if (d != null) { sel = d; selIsl = null; cam.follow = null; cam.tx = sim.G.exx; cam.tz = sim.G.exy; cam.ty = 0; } }
     }
+}
+
+public sealed unsafe partial class Game
+{
+    // human-scale trees around the player (instanced), drawn only while walking an island
+    void DrawNearTrees(Island i, IslandGfx g, Matrix4x4 islandM)
+    {
+        if (!nearTreeBuilt) { for (int k = 0; k < 3; k++) for (int v = 0; v < 2; v++) nearTree[k, v] = IslandBuilder.TreeProto(k, v).Build(); nearTreeBuilt = true; }
+        var sh = g.Shape; var c = sim.G.cap; float sc = MathF.Max(.01f, islVis[i.id].shown), reach2 = 190f * 190f, th = Math.Clamp(4.5f + i.s * .02f, 5, 9); int n = 0;
+        foreach (var tr in sh.Trees)
+        {
+            float dx = tr.x - c.ex, dz = tr.z - c.ez; if (dx * dx + dz * dz > reach2) continue; if (treeMonsterHides(sh, tr)) continue;
+            float gy = sh.Height(tr.x, tr.z); var m = Matrix4x4.CreateScale(th * tr.size) * Matrix4x4.CreateRotationY(tr.rot) * Matrix4x4.CreateTranslation(tr.x, gy - .05f, tr.z) * islandM;
+            lit.Draw(nearTree[tr.kind, (tr.GetHashCode() & 1)], m); if (++n > 420) break;
+        }
+    }
+    bool treeMonsterHides(IslandShape sh, TreeP t) => false; // replaced when tree monsters arrive (P5)
 }
