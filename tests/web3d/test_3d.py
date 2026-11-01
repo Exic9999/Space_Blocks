@@ -8,10 +8,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "..", "mobile3d", "index.html")
 BUILD = os.path.join(HERE, "_build.html")
 SHOTS = os.path.join(HERE, "shots"); os.makedirs(SHOTS, exist_ok=True)
-html = open(SRC).read().replace("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js", "three.min.js")
+html = open(SRC, encoding="utf-8").read().replace("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js", "three.min.js")
 assert "three.min.js" in html
-open(BUILD, "w").write(html)
-URL = "file://" + BUILD
+open(BUILD, "w", encoding="utf-8").write(html)
+URL = __import__("pathlib").Path(BUILD).resolve().as_uri()
 ARGS = ["--no-sandbox", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
 results = []
 
@@ -44,7 +44,7 @@ async def cdp_touch(pg, cdp, kind, pts):
 
 async def main():
     async with async_playwright() as p:
-        b = await p.chromium.launch(executable_path="/snap/bin/chromium", args=ARGS)
+        b = await p.chromium.launch(**({"executable_path": os.environ["CHROMIUM_PATH"]} if os.environ.get("CHROMIUM_PATH") else ({"executable_path": "/snap/bin/chromium"} if os.path.exists("/snap/bin/chromium") else {})), args=ARGS)
 
         # ---- boot + crawl
         pg = await new_page(b)

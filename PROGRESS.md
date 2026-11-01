@@ -23,3 +23,16 @@ B builder, U executor upgrades, T one/all pilots, Tab cycle islands, 1-5 pilots,
 
 ## Status: all features implemented and tested (sim, smoke w/ screenshots, 90-min soak).
 Ideas not done: combat/enemies, ship-to-ship trading, sfx beyond simple synth.
+
+## Mobile builds (added 2026-11-01)
+- `mobile/index.html` — 2D single-file web version. Smoke-checked only (loads, buttons render, no console errors); no test runner.
+- `mobile3d/index.html` — Three.js 3D version (command map, walkable Executor: bridge/corridor/hangar, ship cabins, ion storms, saves).
+  `index.before_storms.html` is a pre-storm snapshot; `t_*.html` and `*.png` are per-scene debug builds/screenshots.
+- Browser tests: `.venv/Scripts/python.exe tests/web3d/test_3d.py` (Playwright; 50/50 pass). Set `CHROMIUM_PATH` to use a specific Chromium.
+  The test swaps the Three.js CDN link for local `three.min.js`, so the CDN load itself is untested.
+
+## Windows setup (verified 2026-11-01)
+`winget install Python.Python.3.12`, then `python -m venv .venv` and
+`.venv\Scripts\python.exe -m pip install pygame-ce numpy playwright` and `.venv\Scripts\python.exe -m playwright install chromium`.
+Run the game with `.venv\Scripts\python.exe main.py` (`run.sh` assumes `.venv/bin`). Headless tests: set `SDL_VIDEODRIVER=dummy` and `SDL_AUDIODRIVER=dummy`.
+All suites (sim_test, smoke, soak, web3d) passed on Windows.
