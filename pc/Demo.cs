@@ -29,6 +29,7 @@ public sealed unsafe partial class Game
             case "storm": cam.dist = 2000; cam.el = .5f; if (sim.G.storms.Count > 0) { var q = sim.G.storms[0]; cam.tx = q.x; cam.tz = q.y; cam.dist = q.r * 3.2f; } break;
             case "walk-bridge": EnterWalk(); walk.x = 2; walk.z = -26; break;
             case "walk-hangar": SetMode(Mode.Walk); walk.x = 1; walk.z = 2; walk.yaw = MathF.PI; break;
+            case "stations": { SetMode(Mode.Walk); sim.G.aeth = 300; foreach (var s2 in sim.G.ships) { sim.GiveOrder(s2, "hold"); } var sp0 = sim.G.ships[0]; sp0.state = "landing"; sp0.lt = .995f; sp0.cargo = 6; sp0.fuel = 4; sp0.hull = 12; for (int i = 0; i < 3000 && sp0.ph != "fuel"; i++) sim.Step(.05f); for (int i = 0; i < 20; i++) sim.Step(.05f); walk.x = 5; walk.z = 3.5f; walk.yaw = -.78f; walk.pitch = -.05f; break; }
             case "walk-corridor": SetMode(Mode.Walk); walk.x = 0; walk.z = -8; walk.yaw = 0; break;
             case "cabin": OpenCabin(sim.G.ships[0]); break;
             case "sail": { sim.G.aeth = 400; sim.SailTo(sim.G.exx + 500, sim.G.exy - 700); for (int i = 0; i < 700; i++) sim.Step(.1f); cam.dist = 900; cam.el = .5f; cam.az = 1.2f; selExec = true; execFollow = true; for (int i = 0; i < 50; i++) Frame(1f / 30); break; }

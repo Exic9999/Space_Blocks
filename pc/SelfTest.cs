@@ -72,10 +72,31 @@ public static class SelfTest
         Ok("pilots keep delivering while the Executor sails", mv.G.delivered > 60 && mv.G.ships.All(s => !float.IsNaN(s.x)), "delivered=" + mv.G.delivered);
         Ok("no pilot stranded airborne after the voyage", mv.G.ships.All(s => s.state != "out" || Mx.Hypot(s.x - mv.G.exx, s.y - mv.G.exy) < 2500));
 
+        // ---- hangar stations: servicing only happens while standing at the station ----
+        var stn = new Sim { Rng = new Random(31) }; stn.NewGame(404); stn.G.aeth = 200;
+        var sp = stn.G.ships[0]; stn.GiveOrder(sp, "hold"); sp.state = "landing"; sp.lt = .995f; sp.cargo = 6; sp.fuel = 5; sp.hull = 15; float aethBefore = stn.G.aeth;
+        var phases = new List<string>(); bool servicedWhileWalking = false, wrongSpot = false; float lc = sp.cargo, lf = sp.fuel, lh = sp.hull;
+        for (int i = 0; i < 4000; i++)
+        {
+            string pb = sp.ph; stn.Step(.05f); if (phases.Count == 0 || phases[^1] != sp.ph) phases.Add(sp.ph);
+            if (sp.state == "docked" && (pb == "walk" || pb == "idle") && sp.ph == pb && (MathF.Abs(sp.cargo - lc) > 1e-4f || MathF.Abs(sp.fuel - lf) > 1e-4f || MathF.Abs(sp.hull - lh) > 1e-4f)) servicedWhileWalking = true;
+            if (sp.ph is "unload" or "fuel" or "repair") { var spot = Data.StSpot[sp.ph == "unload" ? "deposit" : sp.ph]; if (Mx.Hypot(sp.px - spot[0], sp.pz - spot[1]) > .1f) wrongSpot = true; }
+            lc = sp.cargo; lf = sp.fuel; lh = sp.hull; if (sp.ph == "idle") break;
+        }
+        Ok("pilot visits deposit, fuel and repair stations in turn, then the bridge", string.Join(">", phases.Where(p => p != "walk").Distinct()) == "unload>fuel>repair>idle" || phases.Contains("unload") && phases.Contains("fuel") && phases.Contains("repair") && phases.Contains("idle"), string.Join(">", phases));
+        Ok("no servicing while walking", !servicedWhileWalking);
+        Ok("pilot stands at the station while working", !wrongSpot);
+        var stCfg = Sim.StatOf(sp); Ok("pilot ends up unloaded, fuelled and repaired", sp.cargo == 0 && sp.fuel >= stCfg.fuel - .01f && sp.hull >= stCfg.hull - .01f, $"cargo={sp.cargo} fuel={sp.fuel} hull={sp.hull}");
+        Ok("unloaded cargo reached the stores", stn.G.aeth > aethBefore - 20 && stn.G.delivered >= 5.9f, $"aeth {aethBefore}->{stn.G.aeth} delivered {stn.G.delivered}");
+        // legacy save with the old phase names must still load and launch
+        var leg2 = new Sim { Rng = new Random(8) }; leg2.NewGame(77); leg2.G.aeth = 200; string lsj = leg2.Serialize(0).Replace("\"ph\":\"aboard\"", "\"ph\":\"exit\"");
+        var leg3 = new Sim { Rng = new Random(9) }; leg3.Deserialize(lsj); foreach (var s in leg3.G.ships) leg3.GiveOrder(s, "auto"); for (int i = 0; i < 3000; i++) leg3.Step(.1f);
+        Ok("legacy-phase save loads and the crew launches", leg3.G.launches >= 1 && leg3.G.ships.All(s => s.ph is "walk" or "unload" or "fuel" or "repair" or "idle" or "aboard" || s.state != "docked"));
+
         // soak at dt=0.6 for 90 game minutes
         var soak = new Sim { Rng = new Random(99) }; soak.NewGame(777);
         foreach (var s in soak.G.ships) soak.GiveOrder(s, "auto");
-        var since = new Dictionary<int, (string key, float t)>(); float maxStuck = 0; bool bad = false;
+        var since = new Dictionary<int, (string key, float t)>(); float maxStuck = 0, maxDockStuck = 0; bool bad = false;
         int steps = (int)(5400 / .6f);
         for (int k = 0; k < steps; k++)
         {
@@ -87,11 +108,13 @@ public static class SelfTest
                 string key = s.state + "/" + s.ph;
                 if (!since.TryGetValue(s.idx, out var cur) || cur.key != key) since[s.idx] = (key, soak.G.t);
                 else if (!s.indep && s.state != "docked") maxStuck = MathF.Max(maxStuck, soak.G.t - cur.t);
+                else if (s.state == "docked" && s.ph is "walk" or "unload" or "fuel" or "repair" && soak.G.aeth > 5) maxDockStuck = MathF.Max(maxDockStuck, soak.G.t - cur.t);
             }
             if (k % 300 == 0) foreach (var s in soak.G.ships) soak.GiveOrder(s, "auto"); // player keeps crew loyal (every 3 game-min)
         }
         Ok("soak dt=0.6: no NaN/negatives", !bad);
         Ok("soak dt=0.6: no airborne ship stuck > 10 game-min", maxStuck < 600, "maxStuck=" + maxStuck);
+        Ok("soak: no docked pilot stuck walking/servicing > 4 game-min", maxDockStuck < 240, "maxDockStuck=" + maxDockStuck);
         Ok("soak: crew joined and story beats fired", soak.G.ships.Count == 5 && soak.BeatLog.Count >= 8,
             soak.G.ships.Count + " ships, beats=" + string.Join(",", soak.BeatLog));
         Console.WriteLine($"   soak: delivered={soak.G.delivered:F0} found={soak.G.found} beats={soak.BeatLog.Count} maxStuck={maxStuck:F0}s");

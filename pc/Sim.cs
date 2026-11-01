@@ -28,6 +28,7 @@ public sealed class Ship
     public float px, pz, pa;
     public List<float[]> path = new();
     public float idle, ang = -MathF.PI / 2;
+    public string loc = "pad", dest = "pad"; public List<string> visits = new(); public float stall, svcCool; public bool justLanded;
     // transient-ish (saved too; harmless)
     public string nextState = "out"; public List<Pt> pendWp = new();
     public bool scout; public int lastScout = -1; public bool inStorm, warned, walking;
@@ -184,12 +185,59 @@ public sealed class Sim
     }
 
     // ---------------- hangar walking paths ----------------
-    public static float[][] PathFor(Ship s, bool outward)
+    // Pilots move between named locations (pad, deposit, fuel, repair, seat) along a fixed aisle network:
+    // every route goes through the "row" at z = RowZ, so paths never cut across other pads.
+    public const float RowZ = Data.RowZ, AisleX = 5f;
+    public static List<float[]> Route(Ship s, string from, string dest)
     {
-        var p = Data.Pads[s.idx % 5]; float hx = p[0] <= 0 ? p[0] - 3.7f : p[0] + 3.7f; var b = Data.BSpot[s.idx % 5];
-        var there = new[] { new[] { hx, p[1] - 6 }, new[] { 0f, 2f }, new[] { 0f, -12f }, new[] { 0f, -21f }, new[] { b[0], b[1] } };
-        if (outward) return there;
-        var back = there.Reverse().ToList(); back.Add(new[] { hx, p[1] }); return back.ToArray();
+        var path = new List<float[]>(); var pad = Data.Pads[s.idx % 5]; float hx = pad[0] <= 0 ? pad[0] - 3.7f : pad[0] + 3.7f, a = hx < 0 ? -AisleX : AisleX;
+        void Add(float x, float z) => path.Add(new[] { x, z });
+        switch (from)
+        {
+            case "pad": Add(hx, pad[1] - 6); Add(a, pad[1] - 6); Add(a, RowZ); break;
+            case "repair": Add(AisleX, 28); Add(AisleX, RowZ); break;
+            case "seat": Add(0, -21); Add(0, -12); Add(0, RowZ); break;
+        }
+        switch (dest)
+        {
+            case "deposit": case "fuel": Add(Data.StSpot[dest][0], RowZ); break;
+            case "repair": Add(AisleX, RowZ); Add(AisleX, 28); Add(Data.StSpot["repair"][0], 28); break;
+            case "seat": { var b = Data.BSpot[s.idx % 5]; Add(0, -12); Add(0, -21); Add(b[0], b[1]); break; }
+            case "pad": Add(a, RowZ); Add(a, pad[1] - 6); Add(hx, pad[1] - 6); Add(hx, pad[1]); break;
+        }
+        return path;
+    }
+    // Queue the stations this pilot needs, then walk to the first one.
+    void BuildVisits(Ship s, bool addSeat)
+    {
+        var st = StatOf(s); s.visits.Clear();
+        if (s.cargo > .01f) s.visits.Add("deposit");
+        if (s.fuel < st.fuel * .97f) s.visits.Add("fuel");
+        if (s.hull < st.hull * .97f) s.visits.Add("repair");
+        if (addSeat && !s.indep) s.visits.Add("seat");
+    }
+    void GoTo(Ship s, string dest)
+    {
+        s.path = Route(s, s.loc, dest); s.dest = dest; s.ph = "walk"; s.stall = 0;
+        if (s.path.Count == 0) ArriveAtDest(s);
+    }
+    void NextVisit(Ship s)
+    {
+        if (s.visits.Count > 0) { var n = s.visits[0]; s.visits.RemoveAt(0); GoTo(s, n); }
+        else if (s.loc != "pad") GoTo(s, "pad");
+        else { s.ph = "aboard"; s.justLanded = false; }
+    }
+    // Called when a walk finishes: face the tank and start the station's work (or idle at the seat).
+    void ArriveAtDest(Ship s)
+    {
+        s.loc = s.dest; s.walking = false;
+        switch (s.dest)
+        {
+            case "deposit": case "fuel": case "repair":
+                { var tk = Data.StTank[s.dest]; s.pa = MathF.Atan2(tk[0] - s.px, tk[1] - s.pz); s.ph = s.dest == "deposit" ? "unload" : s.dest; s.stall = 0; break; }
+            case "seat": s.ph = "idle"; s.idle = 4 + Rf() * 7; s.pa = MathF.PI; break;
+            case "pad": s.ph = "aboard"; s.justLanded = false; break;
+        }
     }
     bool WalkPath(Ship s, float dt)
     {
@@ -260,23 +308,46 @@ public sealed class Sim
             {
                 { var hp = ExPt(0, 190); s.x = hp.x; s.y = hp.y; }
                 s.docked += dt;
-                if (s.fuel < st.fuel) { float need = MathF.Min(st.fuel - s.fuel, dt * 6), cost = need * .4f; if (G.aeth >= cost) { G.aeth -= cost; s.fuel += need; } }
-                if (s.cargo > 0) { float d = MathF.Min(s.cargo, dt * 10); s.cargo -= d; float share = s.indep ? .6f : 1; G.aeth += d * share; G.delivered += d * share; if (s.cargo <= .01f) { s.cargo = 0; s.trips++; } }
-                if (s.hull < st.hull) { float rp = MathF.Min(st.hull - s.hull, dt * 5), rc = rp * .3f; if (G.aeth >= rc) { G.aeth -= rc; s.hull += rp; } }
+                s.svcCool -= dt;
                 bool ready = s.cargo <= 0 && s.hull >= st.hull * .8f && (s.fuel >= st.fuel * .8f || (s.docked > 40 && s.fuel >= st.fuel * .3f));
-                if (s.ph == "exit") { if (WalkPath(s, dt)) { s.ph = "idle"; s.idle = 4 + Rf() * 7; s.pa = MathF.PI; } }
-                else if (s.ph == "idle") { s.pa = MathF.PI; s.idle -= dt; if (s.idle <= 0 && CanGo(s) && ready) { s.path = PathFor(s, false).ToList(); s.ph = "back"; } }
-                else if (s.ph == "back") { if (WalkPath(s, dt)) s.ph = "aboard"; }
-                else if (s.ph == "aboard") { if (s.docked > 4 && ready) { var p = PlanFor(s); if (p != null) Launch(s, p); else s.docked = 3; } }
+                switch (s.ph)
+                {
+                    case "walk": if (WalkPath(s, dt)) ArriveAtDest(s); break;
+                    case "unload":
+                        if (s.cargo > 0) { float d = MathF.Min(s.cargo, dt * 10); s.cargo -= d; float share = s.indep ? .6f : 1; G.aeth += d * share; G.delivered += d * share; if (s.cargo <= .01f) { s.cargo = 0; s.trips++; } }
+                        if (s.cargo <= 0) NextVisit(s); break;
+                    case "fuel":
+                        {
+                            float need = MathF.Min(st.fuel - s.fuel, dt * 6), cost = need * .4f;
+                            if (st.fuel - s.fuel <= .001f) NextVisit(s);
+                            else if (G.aeth >= cost) { G.aeth -= cost; s.fuel += need; s.stall = 0; }
+                            else { s.stall += dt; if (s.stall > 8) NextVisit(s); }
+                            break;
+                        }
+                    case "repair":
+                        {
+                            float rp = MathF.Min(st.hull - s.hull, dt * 5), rc = rp * .3f;
+                            if (st.hull - s.hull <= .001f) NextVisit(s);
+                            else if (G.aeth >= rc) { G.aeth -= rc; s.hull += rp; s.stall = 0; }
+                            else { s.stall += dt; if (s.stall > 8) NextVisit(s); }
+                            break;
+                        }
+                    case "idle": s.pa = MathF.PI; s.idle -= dt; if (s.idle <= 0 && CanGo(s) && ready) GoTo(s, "pad"); break;
+                    case "aboard":
+                        if (s.docked > 4 && ready) { var p = PlanFor(s); if (p != null) Launch(s, p); else s.docked = 3; }
+                        else if (s.docked > 4 && !ready && s.svcCool <= 0) { s.svcCool = 20; BuildVisits(s, false); if (s.visits.Count > 0) NextVisit(s); }
+                        break;
+                    default: s.ph = "aboard"; s.loc = "pad"; break; // unknown/legacy phase
+                }
             }
             else if (s.state == "landing")
             {
                 s.lt += dt / 6;
                 if (s.lt >= 1)
                 {
-                    s.state = "docked"; s.docked = 0; { var hp = ExPt(0, 190); s.x = hp.x; s.y = hp.y; } s.ph = s.indep ? "aboard" : "exit";
+                    s.state = "docked"; s.docked = 0; { var hp = ExPt(0, 190); s.x = hp.x; s.y = hp.y; }
                     var p = Data.Pads[s.idx % 5]; s.px = p[0] <= 0 ? p[0] - 3.7f : p[0] + 3.7f; s.pz = p[1];
-                    s.path = PathFor(s, true).ToList(); if (s.ph == "aboard") s.path.Clear();
+                    s.loc = "pad"; s.ph = "aboard"; s.justLanded = true; s.path.Clear(); s.svcCool = 0; BuildVisits(s, true); NextVisit(s);
                 }
             }
             else if (s.state == "takeoff")
@@ -424,6 +495,9 @@ public sealed class Sim
         {
             if (s.hull <= 0) s.hull = StatOf(s).hull;
             if (s.state == "landing" || s.state == "takeoff") { s.state = "docked"; s.ph = "aboard"; s.docked = 0; s.path.Clear(); }
+            if (s.ph is not ("walk" or "unload" or "fuel" or "repair" or "idle" or "aboard")) { s.ph = "aboard"; s.path.Clear(); s.visits.Clear(); s.loc = "pad"; } // legacy phases (exit/back)
+            if (s.ph == "idle") s.loc = "seat";
+            if (s.state == "docked" && s.ph == "aboard") { var pp = Data.Pads[s.idx % 5]; s.px = pp[0] <= 0 ? pp[0] - 3.7f : pp[0] + 3.7f; s.pz = pp[1]; s.loc = "pad"; }
         }
         return Math.Clamp(d.sel, 0, G.ships.Count - 1);
     }

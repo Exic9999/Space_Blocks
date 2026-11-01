@@ -63,7 +63,7 @@ public sealed unsafe partial class Game
         {
             var p = Data.Pads[s.idx % 5];
             if ((s.state == "docked" || (s.state == "landing" && s.lt > .95f)) && Mx.Hypot(walk.x - p[0], walk.z - p[1]) < 6.2f) nearShip = s;
-            if (s.state == "docked" && (s.ph is "exit" or "idle" or "back") && Mx.Hypot(walk.x - s.px, walk.z - s.pz) < 3.2f) nearNpc = s;
+            if (s.state == "docked" && (s.ph != "aboard") && Mx.Hypot(walk.x - s.px, walk.z - s.pz) < 3.2f) nearNpc = s;
         }
     }
     void Order(string type)
@@ -239,6 +239,11 @@ public sealed unsafe partial class Game
     }
     void DrawWalkHud(float W, float H, float s)
     {
+        foreach (var (nm, px2, py2, pz2) in new[] { ("AETHERITE DEPOSIT", -14.2f, 6.5f, -1f), ("FUEL", 14.2f, 6.5f, -1f), ("REPAIR GANTRY", 14.2f, 7.5f, 28f) })
+        {
+            var wp3 = new Vector3(px2, py2, pz2); var fw = Vector3.Normalize(icam.Target - icam.Position); if (Vector3.Dot(wp3 - icam.Position, fw) <= 0 || Vector3.Distance(wp3, icam.Position) > 34) continue;
+            var sp3 = Raylib.GetWorldToScreen(wp3, icam); DTextC(nm, sp3.X, sp3.Y, 13 * s, Accent);
+        }
         { var Gx = sim.G; float deg = (((-Gx.exHead * 180 / MathF.PI) % 360) + 360) % 360; DTextC($"Executor: {(Gx.exMoving ? "sailing" : "on station")}  {(int)Gx.exSpeed} u/s  heading {(int)deg}  stores {(int)Gx.aeth}", W / 2, 74 * s, 13 * s, Dim); }
         DTextC(walk.Where().ToUpper(), W / 2, 52 * s, 14 * s, Accent);
         Raylib.DrawCircleLinesV(new Vector2(W / 2, H / 2), 3, new Color((byte)200, (byte)230, (byte)255, (byte)150));

@@ -88,6 +88,18 @@ public static class Interior
         mb.CylY(2.4f, 2.0f, .9f, 0, .45f, -28, C(0x1b2538), 28); mb.CylY(2.3f, 2.3f, .06f, 0, .93f, -28, C(0x1a4a7a), 28, 200);
         for (int s = 0; s < 48; s++) { float a0 = s * MathF.Tau / 48, a1 = (s + 1) * MathF.Tau / 48; Vector3 P(float r, float a) => new(MathF.Cos(a) * r, .97f, -28 + MathF.Sin(a) * r); mb.Quad(P(2.3f, a0), P(2.4f, a0), P(2.4f, a1), P(2.3f, a1), cyan, 255); }
         lights.Add(new PtLight { Pos = new(0, 2.2f, -28), Col = new(.25f, .6f, 1f), Rad = 10 });
+        // ---- service stations: console beside each standing spot, repair gantry arm ----
+        foreach (var (key, cx, cz) in new[] { ("deposit", -12.6f, -5.0f), ("fuel", 12.6f, -5.0f) })
+        {
+            mb.Box(1.3f, 1.0f, .7f, cx, .5f, cz, cons);
+            var sv2 = mb.T; mb.T = Matrix4x4.CreateRotationX(-.35f) * Matrix4x4.CreateTranslation(cx, 1.15f, cz) * sv2; mb.Box(1.1f, .6f, .05f, 0, 0, 0, key == "deposit" ? C(0x5a3ad0) : C(0x20c0a0), 200); mb.T = sv2;
+        }
+        {
+            float gx = 14.2f, gz = 28f;
+            mb.Box(3.0f, .4f, 3.0f, gx, .2f, gz, cons); mb.Box(.5f, 6.5f, .5f, gx + .8f, 3.3f, gz, C(0x4a566e)); mb.Box(.5f, .5f, 2.0f, gx + .8f, 6.6f, gz, C(0x4a566e));
+            mb.Box(4.2f, .35f, .45f, gx - 1.5f, 5.2f, gz, C(0x6a7390)); mb.CylY(.12f, .12f, 1.6f, gx - 3.5f, 4.4f, gz, C(0x8892aa), 8); mb.Sphere(.28f, gx - 3.5f, 3.5f, gz, C(0xffe9a0), 1, 1, 1, 255, 5, 8);
+            mb.Box(1.3f, 1.0f, .7f, 12.6f, .5f, 31f, cons);
+        }
         var tm = new MeshBuilder(); tm.CylY(1.5f, 1.5f, 1, 0, 0, 0, C(0x8a6aff), 18, 255, true);
         return (mb.Build(), tm.Build(), lights, screens);
     }

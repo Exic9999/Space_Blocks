@@ -22,7 +22,7 @@ public sealed unsafe partial class Game
     // ---- gfx ----
     LitShader lit = null!; Texture2D glowTex, reticleTex, fallTex, skyTex, whiteTex; Model skyModel;
     Mesh execHull, execTanks; List<GlowDef> execGlows = new();
-    Mesh intMesh, intTank; List<PtLight> intLights = new(); List<ScreenDef> intScreens = new();
+    Mesh intMesh, intTank, intTankFuel; List<PtLight> intLights = new(); List<ScreenDef> intScreens = new();
     readonly IslandVis[] islVis = new IslandVis[14]; readonly ShipVis[] shipVis = new ShipVis[5];
     IslandGfx? windowIsland;
     (Mesh body, Mesh arm, Mesh leg)[] figs = new (Mesh, Mesh, Mesh)[5];
@@ -49,6 +49,7 @@ public sealed unsafe partial class Game
         skyModel.Materials[0].Maps[(int)MaterialMapIndex.Albedo].Texture = skyTex;
         (execHull, execTanks, execGlows) = Scene.BuildExecutor();
         (intMesh, intTank, intLights, intScreens) = Interior.Build();
+        { var fb = new MeshBuilder(); fb.CylY(1.5f, 1.5f, 1, 0, 0, 0, Col.Hex(0x30e0c0), 18, 255, true); intTankFuel = fb.Build(); }
         windowIsland = Scene.BuildIsland(777, 70);
         for (int i = 0; i < 5; i++) figs[i] = Scene.BuildFigure(i);
         for (int i = 0; i < 3; i++) stormFx[i] = MakeStormFx();
@@ -384,11 +385,15 @@ public sealed unsafe partial class Game
         lit.SetExterior(icam.Position); lit.Draw(windowIsland!.Rock, Matrix4x4.CreateScale(1.4f) * Matrix4x4.CreateTranslation(-60, -6, -300));
         lit.SetInterior(icam.Position, lpos.Take(order.Count).ToArray(), lrad.Take(order.Count).ToArray(), lcol.Take(order.Count).ToArray());
         float fill = MathF.Min(1, G.aeth / 600f);
-        foreach (var tk in Walker.Tanks) { float h = MathF.Max(.05f, 10 * fill); lit.Draw(intTank, Matrix4x4.CreateScale(1, h, 1) * Matrix4x4.CreateTranslation(tk[0], .5f + h / 2, tk[1])); }
+        for (int ti = 0; ti < Walker.Tanks.Length; ti++)
+        {
+            if (ti == 1) continue; // repair gantry, no tank
+            var tk = Walker.Tanks[ti]; float h = MathF.Max(.05f, 10 * fill); lit.Draw(ti == 3 ? intTankFuel : intTank, Matrix4x4.CreateScale(1, h, 1) * Matrix4x4.CreateTranslation(tk[0], .5f + h / 2, tk[1]));
+        }
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.IntVis) lit.Draw(v.Gfx.Mesh, v.Int); }
         foreach (var s in G.ships)
         {
-            bool show = s.state == "docked" && (s.ph is "exit" or "idle" or "back"); if (!show) continue;
+            bool show = s.state == "docked" && (s.ph != "aboard"); if (!show) continue;
             var f = figs[s.idx]; float sw = s.walking ? MathF.Sin(t * 9 + s.idx) * .7f : 0;
             var basis = Matrix4x4.CreateRotationY(s.pa) * Matrix4x4.CreateTranslation(s.px, 0, s.pz);
             lit.Draw(f.body, basis);
@@ -398,7 +403,15 @@ public sealed unsafe partial class Game
         DrawHologram(t); DrawScreens(t);
         Rlgl.DisableDepthMask(); Raylib.BeginBlendMode(BlendMode.Additive);
         DrawQuadAdd(new Vector3(0, 6.5f, 34), 32, 12, 0, Tint(Col.Hex(0x2a70c0), .14f + .06f * MathF.Sin(t * 2.4f)));
-        foreach (var tk in Walker.Tanks) Billboard(icam, new Vector3(tk[0], 5, tk[1]), 7, Tint(Col.Hex(0x8a6aff), .35f));
+        for (int ti = 0; ti < Walker.Tanks.Length; ti++) if (ti != 1) Billboard(icam, new Vector3(Walker.Tanks[ti][0], 5, Walker.Tanks[ti][1]), 7, Tint(Col.Hex(ti == 3 ? 0x30e0c0u : 0x8a6aff), .35f));
+        foreach (var s in G.ships)
+        {   // service beams: tank <-> pilot while a station is in use
+            if (s.state != "docked" || s.ph is not ("unload" or "fuel" or "repair")) continue; string key = s.ph == "unload" ? "deposit" : s.ph; var tk = Data.StTank[key];
+            var hand = new Vector3(s.px + MathF.Sin(s.pa) * .35f, 1.15f, s.pz + MathF.Cos(s.pa) * .35f); var tp = new Vector3(tk[0], key == "repair" ? 3.5f : 1.6f, tk[1]);
+            var bc = key == "deposit" ? Col.Hex(0xa08cff) : key == "fuel" ? Col.Hex(0x40ffd0) : Col.Hex(0xffe9a0); float flick = .6f + .4f * MathF.Sin(t * 25 + s.idx);
+            for (int j = -1; j <= 1; j++) Raylib.DrawLine3D(hand + new Vector3(0, j * .03f, 0), tp + new Vector3(0, j * .03f, 0), Tint(bc, .8f * flick));
+            Billboard(icam, hand, .7f + .2f * flick, Tint(bc, .9f)); Billboard(icam, tp, 1.2f, Tint(bc, .7f * flick));
+        }
         foreach (var s in G.ships) { var v = shipVis[s.idx]; if (v?.Gfx != null && v.IntVis) { bool mv = s.state is "landing" or "takeoff"; foreach (var g in v.Gfx.Glows) Billboard(icam, Vector3.Transform(g.Pos, v.Int), g.Size * ((mv ? 1f : .25f) * (.9f + .1f * MathF.Sin(t * 30)) + .1f), Tint(g.Col, g.Op)); } }
         Raylib.EndBlendMode(); Rlgl.EnableDepthMask();
         Raylib.EndMode3D();
