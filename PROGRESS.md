@@ -59,3 +59,14 @@ User request (verbatim intent): (1) move teammate/NPC talk messages to bottom-LE
 [ ] P5 tree monsters (sim + render + HUD + tests)
 [ ] P6 fidelity pass (shader spec/panel texture, Executor/ships/interiors, trees, water)
 [ ] P7 tests (selftest/uitest), README/PROGRESS, republish exe, final review
+
+## Design review notes for P2+ (from review; follow these)
+- Terrain.cs: bake flatten zones (landing pad, crystal clearing, ore clusters, trailheads) into Height(); trace rivers on UNcarved height with a step cap + momentum, stalled rivers continue outward to the rim, then carve; keep rivers out of flatten zones, trails avoid water. Cache must NOT be serialized (private / [JsonIgnore]). Selftests per size class: every river reaches the rim; pad + nodes dry and nearly flat; trails never in water; peak below flight ceiling.
+- Replace every flat-top assumption (grep `.12f * i.s`, `Scene.GroundH`, `ti.s * .6f` pilot hover alt in Game.UpdateShips, mining-beam end `i.s * .14f`, `IslandGfx.Top`, CapCanLand/autopilot top/CapFly ground clamp) with ONE surface function + per-island max height. Pilots hover over the clearing (not centre/peak); raise cruise altitude over islands they cross.
+- Placement: largest first, never accept a failed placement (shrink instead); clear zone around Executor start; separation >= sum of radii + ~250; inside world; first 3 found islands small/medium and in pilot range (~850); test >= 5 islands reachable from start. Do not loosen the soak check (5 ships, >= 8 beats): tune placement/aeth instead.
+- Executor vs big islands: SailToIsland parks at radius + ~420; push SailTo destinations (and launch approach point ExPt(0,400)) out of island footprints; detour around footprints. Pick sphere for islands ~0.9R and prefer ship hits.
+- Water = static mesh with UVs along flow (add UV support to MeshBuilder) + small water shader with a time uniform (no per-frame Rlgl quads). Apply island bob to water/trails/nodes/monsters.
+- Old saves: terrain regenerates from seed; after load move a landed captain to the new landing spot. Node-count tests need new numbers (keep: visible count shrinks as aeth drops).
+- Look at each size class (orbit + on foot), one waterfall->river shot, one trail-up-mountain shot; time building the huge island (discovery hitch); rerun --bench after P3.
+- Monsters are temporary state: not saved, cleared on takeoff/load, re-roll per landing; F to board must always work; test roll ~50% over many landings. Viewmodel: avoid disabling depth test (try depth-only clear via opengl32 glClear(0x100) or render tool to a render texture).
+- Commit after every milestone; this log is the resume point.
