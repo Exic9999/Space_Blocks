@@ -9,7 +9,7 @@ public sealed unsafe partial class Game
     [DllImport("opengl32.dll")] static extern void glClear(uint mask);
     int evaTool; // 0 pick axe, 1 laser gun
     Mesh pickMesh, gunMesh; bool toolsBuilt; Mesh[] figGear = new Mesh[5];
-    float swingT, kick, boltT, flashT, fireCd; Vector3 boltA, boltB; bool boltHit;
+    float swingT, kick, boltT, flashT, fireCd, meleeCd; Vector3 boltA, boltB; bool boltHit;
 
     void BuildTools()
     {
@@ -42,14 +42,21 @@ public sealed unsafe partial class Game
         if (Raylib.IsKeyPressed(KeyboardKey.One)) evaTool = 0; if (Raylib.IsKeyPressed(KeyboardKey.Two)) evaTool = 1;
         bool lmb = Raylib.IsMouseButtonDown(MouseButton.Left) && !UiOver(), eHeld = Raylib.IsKeyDown(KeyboardKey.E), mining = false;
         fireCd -= dt; kick = MathF.Max(0, kick - dt * 6); boltT -= dt; flashT -= dt;
-        if (evaTool == 0) { mining = sim.MineTick(dt, eHeld || lmb); if (mining) swingT += dt; else swingT = 0; }
+        var isl0 = sim.G.isl[c.island]; meleeCd -= dt;
+        if (evaTool == 0)
+        {
+            mining = sim.MineTick(dt, eHeld || lmb);
+            if (lmb && meleeCd <= 0) { meleeCd = .5f; var hm = sim.MeleeMonsters(evaYaw, 3.6f, 22); if (hm != null) { kick = 1; Play("order"); } }
+            if (mining || lmb) swingT += dt; else swingT = 0;
+        }
         else
         {
             if (lmb)
             {
                 int n = RayOreNode(out float d); bool onNode = n >= 0 && d < 38;
-                if (fireCd <= 0) { fireCd = .22f; kick = 1; flashT = .06f; boltT = .1f; var fwd = Vector3.Normalize(cam3.Target - cam3.Position); var right = Vector3.Normalize(Vector3.Cross(fwd, Vector3.UnitY)); boltA = cam3.Position + right * .22f + Vector3.Normalize(Vector3.Cross(right, fwd)) * -.18f + fwd * .7f; boltB = onNode ? cam3.Position + fwd * d : cam3.Position + fwd * 70; boltHit = onNode; Play("order"); }
-                mining = onNode && sim.MineNode(dt, n, 1.6f); if (!onNode) c.mineT = 0;
+                if (fireCd <= 0) { fireCd = .22f; kick = 1; flashT = .06f; boltT = .1f; var fwd = Vector3.Normalize(cam3.Target - cam3.Position);
+                    var hm = sim.HitMonsters(cam3.Position.X - isl0.x, cam3.Position.Y - (isl0.h + sim.Bob(isl0)), cam3.Position.Z - isl0.y, fwd.X, fwd.Y, fwd.Z, 70, 25, out float md); if (hm != null && md < d) { d = md; onNode = true; n = -1; } var right = Vector3.Normalize(Vector3.Cross(fwd, Vector3.UnitY)); boltA = cam3.Position + right * .22f + Vector3.Normalize(Vector3.Cross(right, fwd)) * -.18f + fwd * .7f; boltB = onNode ? cam3.Position + fwd * d : cam3.Position + fwd * 70; boltHit = onNode; Play("order"); }
+                mining = n >= 0 && d < 38 && sim.MineNode(dt, n, 1.6f); if (!mining) c.mineT = 0;
             }
             else if (eHeld) mining = sim.MineTick(dt, true); else c.mineT = 0;
         }

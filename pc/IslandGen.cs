@@ -208,3 +208,19 @@ public static class IslandBuilder
         return (v, f);
     }
 }
+
+public static partial class MonsterGfx
+{
+    static readonly MeshBuilder?[] protos = new MeshBuilder?[3];
+    // a tree with glowing red eyes, a dark mouth, raised branch-arms and root-feet (unit height, faces +z)
+    public static MeshBuilder Proto(int kind)
+    {
+        if (protos[kind] is { } have) return have; var mb = new MeshBuilder(); mb.Append(IslandBuilder.TreeProto(kind, 0), Matrix4x4.Identity, .8f);
+        float ez = kind == 0 ? .3f : .075f, ey = kind == 0 ? .42f : .46f; var eye = Col.Hex(0xff3a2a); var dark = Col.Hex(0x1a0f0c); var bark = Col.Hex(0x4a3020);
+        foreach (int s in new[] { -1, 1 }) { mb.Sphere(.034f, s * .06f, ey, ez, eye, 1.3f, .8f, .7f, 255, 4, 6); }
+        mb.Box(.1f, .035f, .03f, 0, ey - .1f, ez, dark); mb.Box(.07f, .02f, .03f, 0, ey - .13f, ez, dark);
+        foreach (int s in new[] { -1, 1 }) { var sv = mb.T; mb.T = Matrix4x4.CreateRotationZ(-s * 1.0f) * Matrix4x4.CreateRotationX(-.5f) * Matrix4x4.CreateTranslation(s * .06f, .4f, .04f) * sv; mb.CylY(.014f, .03f, .34f, 0, .17f, 0, bark, 5); mb.T = sv; }
+        for (int k = 0; k < 4; k++) { float a = k * 1.57f + .4f; var sv = mb.T; mb.T = Matrix4x4.CreateRotationZ(MathF.Cos(a) * .9f) * Matrix4x4.CreateRotationX(MathF.Sin(a) * .9f) * Matrix4x4.CreateTranslation(MathF.Cos(a) * .06f, .03f, MathF.Sin(a) * .06f) * sv; mb.CylY(.03f, .008f, .2f, 0, -.02f, 0, bark, 5); mb.T = sv; }
+        protos[kind] = mb; return mb;
+    }
+}

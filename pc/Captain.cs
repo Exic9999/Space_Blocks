@@ -190,8 +190,11 @@ public sealed unsafe partial class Game
     void DrawEvaHud(float W, float H, float s)
     {
         var c = sim.G.cap; if (c.state != "landed") return; var isl = sim.G.isl[c.island]; int n = sim.NearestNode(isl, c.ex, c.ez);
+        if (sim.HurtT > 0) { var rc = new Color((byte)255, (byte)30, (byte)30, (byte)(Math.Clamp(sim.HurtT * 260, 0, 120))); Raylib.DrawRectangleGradientV(0, 0, (int)W, (int)(H * .25f), rc, new Color((byte)255, (byte)30, (byte)30, (byte)0)); Raylib.DrawRectangleGradientV(0, (int)(H * .75f), (int)W, (int)(H * .25f), new Color((byte)255, (byte)30, (byte)30, (byte)0), rc); }
+        if (sim.Monsters.Any(q => q.awake && !q.dead)) DTextC("THE TREES ARE ALIVE!  [2] laser  [1] pick axe  or run for the ship", W / 2, 96 * s, 17 * s, Rgb(0xff6a5a)); else if (sim.Haunted && sim.Monsters.Count > 0) DTextC("Something stirs in the trees...", W / 2, 96 * s, 15 * s, Rgb(0xffbe5a));
         Raylib.DrawCircleLinesV(new Vector2(W / 2, H / 2), 3, new Color((byte)200, (byte)230, (byte)255, (byte)170));
         DTextC(isl.name.ToUpper(), W / 2, 52 * s, 14 * s, Accent); DTextC($"{(int)isl.aeth} Aetherite left on this island", W / 2, 72 * s, 12 * s, Dim);
+        { var hb = new Rectangle(14 * s, H - 112 * s, 250 * s, 24 * s); Box(hb, new Color((byte)11, (byte)19, (byte)38, (byte)215)); DText("HEALTH", hb.X + 10 * s, hb.Y + 4 * s, 13 * s, Dim); var bar = new Rectangle(hb.X + 74 * s, hb.Y + 7 * s, 160 * s, 10 * s); Raylib.DrawRectangleRec(bar, new Color((byte)0, (byte)0, (byte)0, (byte)140)); Raylib.DrawRectangleRec(new Rectangle(bar.X, bar.Y, bar.Width * Math.Clamp(c.hp / 100f, 0, 1), bar.Height), c.hp < 35 ? Rgb(0xff5a5a) : Rgb(0x6eeba0)); }
         var gr = new Rectangle(14 * s, H - 80 * s, 250 * s, 60 * s); Box(gr, new Color((byte)11, (byte)19, (byte)38, (byte)215));
         DText($"ORE PACK  {(int)c.ore}/{Sim.CapCarry}   ({(int)(c.ore * Sim.ChunkVal)} Aetherite)", gr.X + 12 * s, gr.Y + 8 * s, 14 * s, Rgb(0xb69cff));
         var b = new Rectangle(gr.X + 12 * s, gr.Y + 34 * s, 226 * s, 10 * s); Raylib.DrawRectangleRec(b, new Color((byte)0, (byte)0, (byte)0, (byte)130)); Raylib.DrawRectangleRec(new Rectangle(b.X, b.Y, b.Width * c.ore / Sim.CapCarry, b.Height), Rgb(0xa08cff));

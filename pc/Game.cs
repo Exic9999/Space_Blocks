@@ -25,7 +25,7 @@ public sealed unsafe partial class Game
     Mesh intMesh, intTank, intTankFuel; List<PtLight> intLights = new(); List<ScreenDef> intScreens = new();
     readonly IslandVis[] islVis = new IslandVis[14]; readonly ShipVis[] shipVis = new ShipVis[5];
     readonly Dictionary<int, Task<IslandBuilder.IslandPrep>> islTasks = new(); readonly SemaphoreSlim islGate = new(2); bool gcDone;
-    IslandGfx? windowIsland; WaterShader water = null!; readonly Mesh[,] nearTree = new Mesh[3, 2]; bool nearTreeBuilt;
+    IslandGfx? windowIsland; WaterShader water = null!; readonly Mesh[,] nearTree = new Mesh[3, 2]; readonly Mesh[] monsterTree = new Mesh[3]; bool nearTreeBuilt;
     (Mesh body, Mesh arm, Mesh leg)[] figs = new (Mesh, Mesh, Mesh)[5];
     Camera3D cam3, icam;
     Vector3 camPos;
@@ -477,14 +477,22 @@ public sealed unsafe partial class Game
     // human-scale trees around the player (instanced), drawn only while walking an island
     void DrawNearTrees(Island i, IslandGfx g, Matrix4x4 islandM)
     {
-        if (!nearTreeBuilt) { for (int k = 0; k < 3; k++) for (int v = 0; v < 2; v++) nearTree[k, v] = IslandBuilder.TreeProto(k, v).Build(); nearTreeBuilt = true; }
-        var sh = g.Shape; var c = sim.G.cap; float sc = MathF.Max(.01f, islVis[i.id].shown), reach2 = 190f * 190f, th = Math.Clamp(4.5f + i.s * .02f, 5, 9); int n = 0;
-        foreach (var tr in sh.Trees)
+        if (!nearTreeBuilt) { for (int k = 0; k < 3; k++) { for (int v = 0; v < 2; v++) nearTree[k, v] = IslandBuilder.TreeProto(k, v).Build(); monsterTree[k] = MonsterGfx.Proto(k).Build(); } nearTreeBuilt = true; }
+        var sh = g.Shape; var c = sim.G.cap; float reach2 = 190f * 190f, th = Math.Clamp(4.5f + i.s * .02f, 5, 9); int n = 0; var hide = new HashSet<int>(sim.Monsters.Select(q => q.tree));
+        for (int k = 0; k < sh.Trees.Count; k++)
         {
-            float dx = tr.x - c.ex, dz = tr.z - c.ez; if (dx * dx + dz * dz > reach2) continue; if (treeMonsterHides(sh, tr)) continue;
+            var tr = sh.Trees[k]; float dx = tr.x - c.ex, dz = tr.z - c.ez; if (dx * dx + dz * dz > reach2 || hide.Contains(k)) continue;
             float gy = sh.Height(tr.x, tr.z); var m = Matrix4x4.CreateScale(th * tr.size) * Matrix4x4.CreateRotationY(tr.rot) * Matrix4x4.CreateTranslation(tr.x, gy - .05f, tr.z) * islandM;
-            lit.Draw(nearTree[tr.kind, (tr.GetHashCode() & 1)], m); if (++n > 420) break;
+            lit.Draw(nearTree[tr.kind, k & 1], m); if (++n > 420) break;
+        }
+        float t = T;
+        foreach (var mo in sim.Monsters)
+        {
+            var tr = sh.Trees[mo.tree]; float gy = sh.Height(mo.x, mo.z), s = th * tr.size * 1.15f; Matrix4x4 m;
+            if (mo.dead) { float f = MathF.Min(1, mo.deadT / .8f); m = Matrix4x4.CreateScale(s * (1 - .3f * f)) * Matrix4x4.CreateRotationX(f * 1.45f) * Matrix4x4.CreateRotationY(mo.face) * Matrix4x4.CreateTranslation(mo.x, gy - f * .5f, mo.z) * islandM; lit.Draw(monsterTree[tr.kind], m, 1f); continue; }
+            if (!mo.awake) { float near = Mx.Hypot(c.ex - mo.x, c.ez - mo.z); float shiver = near < 40 ? MathF.Sin(t * 30 + mo.tree) * .02f * (1 - near / 40) : 0; m = Matrix4x4.CreateScale(s * (1 + shiver)) * Matrix4x4.CreateRotationY(tr.rot) * Matrix4x4.CreateTranslation(mo.x, gy - .05f, mo.z) * islandM; lit.Draw(nearTree[tr.kind, mo.tree & 1], m); continue; }
+            float walk = MathF.Abs(MathF.Sin(t * 7 + mo.tree)) * .22f, lean = .1f * MathF.Sin(t * 7 + mo.tree); m = Matrix4x4.CreateScale(s * (1 + .04f * MathF.Sin(t * 12 + mo.tree)), s * (1 - .04f * MathF.Sin(t * 12 + mo.tree)), s) * Matrix4x4.CreateRotationZ(lean) * Matrix4x4.CreateRotationY(mo.face) * Matrix4x4.CreateTranslation(mo.x, gy + walk, mo.z) * islandM;
+            lit.Draw(monsterTree[tr.kind], m, 1.2f);
         }
     }
-    bool treeMonsterHides(IslandShape sh, TreeP t) => false; // replaced when tree monsters arrive (P5)
 }

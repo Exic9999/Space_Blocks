@@ -204,6 +204,35 @@ public static class SelfTest
         Ok("40 worlds: always 14 islands", countOk); Ok("40 worlds: no two islands overlap (radius sum + 250 gap)", placeOk, why); Ok("40 worlds: every island fully inside the world", boundsOk, why);
         Ok("40 worlds: the Executor's start is clear", clearOk, why); Ok("40 worlds: at least 5 islands within pilot range of the start", reachOk, why); Ok("40 worlds: a mix of small, medium and at least one very large island", sizesOk, why);
 
+        // ---- tree monsters: 50/50 haunting per landing, chase, fight, death, takeoff ----
+        var tmS = new Sim { Rng = new Random(123) }; tmS.NewGame(88); var isl9 = tmS.G.isl[0]; isl9.found = true; int haunted = 0; for (int k = 0; k < 400; k++) if (tmS.RollHaunting(isl9)) haunted++;
+        Ok("each landing is haunted about half the time (400 landings)", haunted > 160 && haunted < 240, $"{haunted}/400");
+        var mc = tmS.G.cap; mc.state = "landed"; mc.island = 0; var mshape = Terrain.Get(isl9); var (lpx, lpz) = tmS.LandSpot(isl9); mc.ex = lpx - 4.5f; mc.ez = lpz + 1.5f; mc.hp = 100; mc.ore = 6; bool got = false; for (int k = 0; k < 40 && !got; k++) got = tmS.RollHaunting(isl9);
+        Ok("a haunted landing turns some nearby trees into monsters", got && tmS.Monsters.Count >= 1 && tmS.Monsters.Count <= 26, "count=" + tmS.Monsters.Count);
+        Ok("monsters start dormant, away from the ship, on dry ground", tmS.Monsters.All(m => !m.awake && Mx.Hypot(m.x - mshape.Pad.X, m.z - mshape.Pad.Y) > 22 && !mshape.Wet(m.x, m.z)));
+        var m0 = tmS.Monsters.OrderBy(m => Mx.Hypot(m.x - mc.ex, m.z - mc.ez)).First(); mc.ex = m0.x - 14; mc.ez = m0.z; float dBefore = Mx.Hypot(mc.ex - m0.x, mc.ez - m0.z); for (int k = 0; k < 30; k++) tmS.Step(.1f);
+        Ok("walking within 18 units wakes a monster and it closes in", m0.awake && Mx.Hypot(mc.ex - m0.x, mc.ez - m0.z) < dBefore - 4, $"d {dBefore:F1} -> {Mx.Hypot(mc.ex - m0.x, mc.ez - m0.z):F1}");
+        mc.hp = 100; foreach (var mm in tmS.Monsters.ToList()) if (mm != m0) tmS.Monsters.Remove(mm); float hpA = mc.hp; for (int k = 0; k < 50; k++) tmS.Step(.1f);
+        Ok("a monster in reach drains health (about 12 per second)", hpA - mc.hp > 25 && hpA - mc.hp < 75, $"hp {hpA} -> {mc.hp:F0}");
+        // laser: three 25-damage hits kill a 60-hp monster; it leaves ore
+        mc.hp = 100; m0.hp = 60; float ore1 = mc.ore; var iz = tmS.G.isl[0]; float eyeY = mshape.Height(mc.ex, mc.ez) + 1.7f, tx = m0.x - mc.ex, ty = mshape.Height(m0.x, m0.z) + 3.3f - eyeY, tz = m0.z - mc.ez, tl = MathF.Sqrt(tx * tx + ty * ty + tz * tz);
+        int shots = 0; while (!m0.dead && shots < 6) { tmS.HitMonsters(mc.ex, eyeY, mc.ez, tx / tl, ty / tl, tz / tl, 70, 25, out _); shots++; }
+        Ok("three laser hits kill a monster and it drops a chunk of ore", m0.dead && shots == 3 && mc.ore == ore1 + 1, $"shots={shots} ore {ore1}->{mc.ore}");
+        var miss = tmS.HitMonsters(mc.ex, eyeY, mc.ez, 0, 1, 0, 70, 25, out _); Ok("a shot at the sky hits nothing", miss == null);
+        // pick axe: three 22-damage swings
+        tmS.Monsters.Clear(); var m1 = new Sim.Monster { tree = 0, x = mc.ex + 2.2f, z = mc.ez, awake = true }; tmS.Monsters.Add(m1); float yawTo = MathF.Atan2(-(m1.x - mc.ex), -(m1.z - mc.ez)); int swings = 0; while (!m1.dead && swings < 6) { tmS.MeleeMonsters(yawTo, 3.6f, 22); swings++; }
+        Ok("three pick-axe swings kill a monster in front of you", m1.dead && swings == 3, "swings=" + swings); var behind = new Sim.Monster { x = mc.ex - 2.2f, z = mc.ez, awake = true }; tmS.Monsters.Add(behind); Ok("the pick axe cannot hit what is behind you", tmS.MeleeMonsters(yawTo, 3.6f, 22) == null);
+        // overwhelmed: wake beside the ship with half the ore, trees calm down
+        tmS.Monsters.Clear(); tmS.Monsters.Add(new Sim.Monster { x = mc.ex + 1, z = mc.ez, awake = true }); mc.hp = 3; mc.ore = 9; for (int k = 0; k < 30; k++) tmS.Step(.1f);
+        Ok("being overwhelmed respawns you at the ship with half the ore", mc.hp >= 59 && mc.ore == 4 && tmS.Monsters.Count == 0 && Mx.Hypot(mc.ex - (lpx - 4.5f), mc.ez - (lpz + 1.5f)) < 3, $"hp={mc.hp} ore={mc.ore}");
+        tmS.Monsters.Add(new Sim.Monster { x = mc.ex + 30, z = mc.ez }); Ok("boarding the ship is always possible, and clears the monsters", tmS.CapTakeoff() && tmS.Monsters.Count == 0);
+        for (int k = 0; k < 40; k++) tmS.Step(.1f); tmS.G.cap.state = "landed"; tmS.Monsters.Add(new Sim.Monster { x = 1, z = 1 }); tmS.G.cap.hp = 77; string mj = tmS.Serialize(0); var ml = new Sim(); ml.Deserialize(mj);
+        Ok("saving never stores monsters, but keeps health", ml.Monsters.Count == 0 && MathF.Abs(ml.G.cap.hp - 77) < .01f);
+        // a long fight never produces NaN or runaway values
+        var fs = new Sim { Rng = new Random(9) }; fs.NewGame(31); var fi2 = fs.G.isl[1]; fi2.found = true; var fc = fs.G.cap; fc.state = "landed"; fc.island = 1; var fls = fs.LandSpot(fi2); fc.ex = fls.x - 4.5f; fc.ez = fls.z + 1.5f; bool fightOk = true; int respawns = 0;
+        for (int round = 0; round < 40; round++) { fs.RollHaunting(fi2); foreach (var mo in fs.Monsters) { mo.awake = true; } for (int k = 0; k < 150; k++) { float prevHp = fc.hp; fs.Step(.1f); if (fc.hp > prevHp + 20) respawns++; var tgt = fs.Monsters.FirstOrDefault(q => !q.dead); if (tgt != null && k % 7 == 0) fs.MeleeMonsters(MathF.Atan2(-(tgt.x - fc.ex), -(tgt.z - fc.ez)), 3.6f, 22); if (float.IsNaN(fc.hp) || float.IsNaN(fc.ex) || fs.Monsters.Any(q => float.IsNaN(q.x))) fightOk = false; } }
+        Ok("40 rounds of fighting: no NaN, health stays in range", fightOk && fc.hp > 0 && fc.hp <= 100.01f);
+
         // soak at dt=0.6 for 90 game minutes
         var soak = new Sim { Rng = new Random(99) }; soak.NewGame(777);
         foreach (var s in soak.G.ships) soak.GiveOrder(s, "auto");

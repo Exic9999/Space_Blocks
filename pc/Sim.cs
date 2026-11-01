@@ -37,7 +37,7 @@ public sealed class Ship
 public sealed class Captain
 {
     public string state = "docked"; // docked, launch, fly, dock, land, landed, lift
-    public float x, y, alt = 20, ang = -MathF.PI / 2, speed, fuel = 30, hull = 40, lt, thr, sx, sy, salt, ex, ez, ore, mineT, depAt; // ex,ez: on-foot position local to the island
+    public float x, y, alt = 20, ang = -MathF.PI / 2, speed, fuel = 30, hull = 40, hp = 100, lt, thr, sx, sy, salt, ex, ez, ore, mineT, depAt; // ex,ez: on-foot position local to the island
     public int island = -1, target = -1; public string auto = ""; public bool lowWarned;
 }
 
@@ -503,6 +503,7 @@ public sealed class Sim
     public bool CapTakeoff()
     {
         var c = G.cap; if (c.state != "landed") return false;
+        Monsters.Clear(); Haunted = false;
         c.state = "lift"; c.lt = 0; c.sx = c.x; c.sy = c.y; c.salt = c.alt; Say("Captain's ship lifting off.", C_CYAN); return true;
     }
     public bool CapCanDock() { var c = G.cap; if (c.state != "fly") return false; var m = ExPt(0, 330); return Mx.Hypot(c.x - m.x, c.y - m.y) < 150 && c.alt < 110; }
@@ -534,10 +535,11 @@ public sealed class Sim
     void CapStep(float dt)
     {
         var c = G.cap;
+        if (c.state != "landed" && Monsters.Count > 0) { Monsters.Clear(); Haunted = false; }
         if (float.IsNaN(c.x) || float.IsNaN(c.y) || float.IsNaN(c.alt)) { var hp0 = ExPt(0, 190); c.x = hp0.x; c.y = hp0.y; c.alt = 20; c.state = "docked"; c.speed = 0; }
         switch (c.state)
         {
-            case "docked": { var hp = ExPt(0, 190); c.x = hp.x; c.y = hp.y; c.speed = 0; c.alt = 20; c.thr = 0; break; }
+            case "docked": { var hp = ExPt(0, 190); c.x = hp.x; c.y = hp.y; c.speed = 0; c.alt = 20; c.thr = 0; c.hp = MathF.Min(100, c.hp + 10 * dt); break; }
             case "launch":
                 c.lt += dt / 5; { var hp = ExPt(0, 190); c.x = hp.x; c.y = hp.y; }
                 if (c.lt >= 1) { var mp = ExPt(0, 330); c.x = mp.x; c.y = mp.y; c.ang = MathF.Atan2(MathF.Cos(G.exHead), MathF.Sin(G.exHead)); c.speed = 60; c.thr = .35f; c.alt = 20; c.state = "fly"; c.lt = 0; }
@@ -552,11 +554,11 @@ public sealed class Sim
                     float tx = i.x + lx, ty = i.y + lz, ta = GroundY(i, lx, lz) + .5f;
                     c.x = c.sx + (tx - c.sx) * k; c.y = c.sy + (ty - c.sy) * k; c.alt = c.salt + (ta - c.salt) * k; c.speed = 0;
                     { float gnd = GroundY(i, c.x - i.x, c.y - i.y) + 10; if (k < .9f && c.alt < gnd) c.alt = gnd; } // clear any ridge on the way down
-                    if (c.lt >= 1) { c.state = "landed"; c.ang = MathF.PI; c.ex = lx - 4.5f; c.ez = lz + 1.5f; c.mineT = 0; Say("Landed on " + i.name + ". Hold E near the glowing ore to mine it.", C_GOOD); }
+                    if (c.lt >= 1) { c.state = "landed"; c.ang = MathF.PI; c.ex = lx - 4.5f; c.ez = lz + 1.5f; c.mineT = 0; RollHaunting(i); Say("Landed on " + i.name + ". Hold E near the glowing ore to mine it.", C_GOOD); }
                     break;
                 }
             case "landed":
-                { var i = G.isl[c.island]; var (lx, lz) = LandSpot(i); c.x = i.x + lx; c.y = i.y + lz; c.alt = GroundY(i, lx, lz) + .5f; c.speed = 0; break; }
+                { var i = G.isl[c.island]; var (lx, lz) = LandSpot(i); c.x = i.x + lx; c.y = i.y + lz; c.alt = GroundY(i, lx, lz) + .5f; c.speed = 0; MonsterStep(dt); break; }
             case "lift":
                 {
                     var i = G.isl[c.island]; c.lt += dt / 2.5f; float k = MathF.Min(1, c.lt); k = k * k * (3 - 2 * k); var (lx, lz) = LandSpot(i);
@@ -598,6 +600,60 @@ public sealed class Sim
         if (c.fuel >= home + 3) c.lowWarned = false;
         float sens = 300 + 130 * G.upSensors; foreach (var i in G.isl) if (!i.found && Mx.Hypot(i.x - c.x, i.y - c.y) < sens * .8f) Discover(i, null);
         foreach (var i in G.isl) { float d = Mx.Hypot(i.x - c.x, i.y - c.y); if (d < i.s) { float floor = GroundY(i, c.x - i.x, c.y - i.y) + 8; if (c.alt < floor) c.alt = floor; } }
+    }
+
+    // ---------------- tree monsters (temporary state: never saved, re-rolled on every landing) ----------------
+    public sealed class Monster { public int tree; public float x, z, hp = 60, face, atkT, deadT; public bool awake, dead; }
+    public readonly List<Monster> Monsters = new(); public bool Haunted; public float HurtT, KillFlash;
+    public const float MonsterAggro = 18, MonsterSpeed = 3.4f, MonsterReach = 2.7f, MonsterDps = 12;
+    // 50/50 each time the commander lands: do the trees here come alive? If so, about half of the nearest 26 turn hostile.
+    public bool RollHaunting(Island isl)
+    {
+        Monsters.Clear(); Haunted = Rng.NextDouble() < .5; if (!Haunted) return false;
+        var sh = Shape(isl); var pad = sh.Pad; var cand = sh.Trees.Select((t, k) => (t, k)).Where(q => Mx.Hypot(q.t.x - pad.X, q.t.z - pad.Y) > 24).OrderBy(q => Mx.Hypot(q.t.x - pad.X, q.t.z - pad.Y)).Take(26).ToList();
+        foreach (var (t, k) in cand) if (Rng.NextDouble() < .5) Monsters.Add(new Monster { tree = k, x = t.x, z = t.z });
+        if (Monsters.Count == 0 && cand.Count > 0) Monsters.Add(new Monster { tree = cand[0].k, x = cand[0].t.x, z = cand[0].t.z });
+        if (Monsters.Count == 0) { Haunted = false; return false; }
+        Say("The trees on " + isl.name + " stir. Something is wrong here. Stay near the ship, or fight.", C_WARN); return true;
+    }
+    void MonsterStep(float dt)
+    {
+        var c = G.cap; if (c.state != "landed") { Monsters.Clear(); return; } bool near = false; HurtT = MathF.Max(0, HurtT - dt); KillFlash = MathF.Max(0, KillFlash - dt);
+        foreach (var m in Monsters)
+        {
+            if (m.dead) { m.deadT += dt; continue; }
+            float dx = c.ex - m.x, dz = c.ez - m.z, d = Mx.Hypot(dx, dz); if (!m.awake && d < MonsterAggro) m.awake = true; if (!m.awake) continue; near = true; m.face = MathF.Atan2(dx, dz);
+            if (d > MonsterReach * .85f) { float st = MathF.Min(MonsterSpeed * dt, d); m.x += dx / d * st; m.z += dz / d * st; }
+            else { c.hp -= MonsterDps * dt; HurtT = .35f; }
+        }
+        Monsters.RemoveAll(m => m.dead && m.deadT > 1.2f);
+        if (c.hp <= 0) // overwhelmed: wake up beside the ship, minus half the ore; the trees settle back down
+        {
+            var isl = G.isl[c.island]; var ls = LandSpot(isl); c.ex = ls.x - 4.5f; c.ez = ls.z + 1.5f; c.hp = 60; c.ore = MathF.Floor(c.ore / 2); c.mineT = 0; Monsters.Clear(); Haunted = false;
+            Say("You were overwhelmed. You come to beside your ship, minus half your ore.", C_BAD);
+        }
+        else if (!near && c.hp < 100) c.hp = MathF.Min(100, c.hp + 4 * dt);
+    }
+    void Kill(Monster m) { m.dead = true; m.deadT = 0; KillFlash = .3f; var c = G.cap; if (c.ore < CapCarry) { c.ore += 1; Say("The tree monster collapses and leaves a chunk of ore.", C_GOOD); } else Say("The tree monster collapses.", C_GOOD); }
+    // hitscan from the crosshair (island-local origin; y is relative to the island's base). Returns the monster hit, distance in `dist`.
+    public Monster? HitMonsters(float ox, float oy, float oz, float dx, float dy, float dz, float range, float dmg, out float dist)
+    {
+        dist = range; Monster? best = null; if (G.cap.state != "landed") return null; var sh = Shape(G.isl[G.cap.island]);
+        foreach (var m in Monsters)
+        {
+            if (m.dead) continue; float cy = sh.Height(m.x, m.z) + 3.3f, rx = m.x - ox, ry = cy - oy, rz = m.z - oz, t = rx * dx + ry * dy + rz * dz; if (t < 0 || t > range) continue;
+            float px = rx - dx * t, py = ry - dy * t, pz = rz - dz * t; if (px * px + py * py + pz * pz > 2.6f * 2.6f) continue; if (t < dist) { dist = t; best = m; }
+        }
+        if (best != null) { best.awake = true; best.hp -= dmg; if (best.hp <= 0) Kill(best); }
+        return best;
+    }
+    // pick-axe swing: the nearest monster within reach in front of the commander
+    public Monster? MeleeMonsters(float yaw, float reach, float dmg)
+    {
+        var c = G.cap; if (c.state != "landed") return null; float fx = -MathF.Sin(yaw), fz = -MathF.Cos(yaw); Monster? best = null; float bd = reach;
+        foreach (var m in Monsters) { if (m.dead) continue; float dx = m.x - c.ex, dz = m.z - c.ez, d = Mx.Hypot(dx, dz); if (d > reach + 1.2f || (dx * fx + dz * fz) / MathF.Max(d, .01f) < .2f) continue; if (d < bd + 1.2f) { bd = d; best = m; } }
+        if (best != null) { best.awake = true; best.hp -= dmg; if (best.hp <= 0) Kill(best); }
+        return best;
     }
 
     // ---------------- upgrades ----------------
@@ -673,6 +729,7 @@ public sealed class Sim
             if (s.ph == "idle") s.loc = "seat";
             if (s.state == "docked" && s.ph == "aboard") { var pp = Data.Pads[s.idx % 5]; s.px = pp[0] <= 0 ? pp[0] - 3.7f : pp[0] + 3.7f; s.pz = pp[1]; s.loc = "pad"; }
         }
+        Monsters.Clear(); Haunted = false; if (G.cap.hp <= 0 || float.IsNaN(G.cap.hp)) G.cap.hp = 100;
         var cp = G.cap; // captain animation states cannot resume mid-way: settle them
         if (cp.state is "launch" or "dock") { cp.state = "docked"; cp.lt = 0; }
         else if (cp.state == "land") { cp.island = Math.Clamp(cp.island, 0, G.isl.Count - 1); var li = G.isl[cp.island]; var ls = LandSpot(li); cp.state = "landed"; cp.lt = 0; cp.ex = ls.x - 4.5f; cp.ez = ls.z + 1.5f; }
