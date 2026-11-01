@@ -63,7 +63,7 @@ public sealed unsafe partial class Game
             if (s.state == "docked" && (s.ph is "exit" or "idle" or "back") && Mx.Hypot(walk.x - s.px, walk.z - s.pz) < 3.2f) nearNpc = s;
         }
     }
-    void Order(string type) { if (sel == null) return; if (type == "lock") { if (selIsl != null && selIsl.found) sim.GiveOrder(sel, "mine", selIsl.id); } else sim.GiveOrder(sel, type); }
+    void Order(string type) { if (sel == null) return; Play("order"); if (type == "lock") { if (selIsl != null && selIsl.found) sim.GiveOrder(sel, "mine", selIsl.id); } else sim.GiveOrder(sel, type); }
 
     void HandleInput(float dt)
     {
@@ -85,14 +85,14 @@ public sealed unsafe partial class Game
             if (dragging && Raylib.IsMouseButtonReleased(MouseButton.Left)) { dragging = false; if (dragMoved < 10) Tap(mouse); }
             if (Raylib.IsMouseButtonPressed(MouseButton.Right) && !UiOver() && sel != null)
             {
-                var ray = Raylib.GetMouseRay(mouse, cam3); foreach (var i in sim.G.isl) if (i.found && Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * 1.25f).Hit) { selIsl = i; Order("lock"); break; }
+                var ray = Raylib.GetScreenToWorldRay(mouse, cam3); foreach (var i in sim.G.isl) if (i.found && Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * 1.25f).Hit) { selIsl = i; Order("lock"); break; }
             }
             float wheel = Raylib.GetMouseWheelMove(); if (wheel != 0 && !UiOver()) cam.dist = Math.Clamp(cam.dist * (wheel > 0 ? .9f : 1.12f), 250, 5500);
             if (Raylib.IsKeyDown(KeyboardKey.Z)) cam.dist = Math.Max(250, cam.dist * (1 - dt * 1.5f)); if (Raylib.IsKeyDown(KeyboardKey.X)) cam.dist = Math.Min(5500, cam.dist * (1 + dt * 1.5f));
             float k = cam.dist * .8f * dt, fx = 0, fz = 0;
             if (Raylib.IsKeyDown(KeyboardKey.W)) { fx -= 1; } if (Raylib.IsKeyDown(KeyboardKey.S)) { fx += 1; } if (Raylib.IsKeyDown(KeyboardKey.A)) { fz -= 1; } if (Raylib.IsKeyDown(KeyboardKey.D)) { fz += 1; }
             if (fx != 0 || fz != 0) { cam.follow = null; cam.tx += (-MathF.Sin(cam.az) * fx + MathF.Cos(cam.az) * fz) * -k * -1; cam.tz += (-MathF.Cos(cam.az) * fx - MathF.Sin(cam.az) * fz) * -k * -1; cam.tx = Math.Clamp(cam.tx, 0, Data.W); cam.tz = Math.Clamp(cam.tz, 0, Data.W); }
-            if (Raylib.IsKeyPressed(KeyboardKey.Space)) { sim.DoScan(); }
+            if (Raylib.IsKeyPressed(KeyboardKey.Space)) { sim.DoScan(); Play("scan"); } if (Raylib.IsKeyPressed(KeyboardKey.M)) ToggleMusic();
             if (Raylib.IsKeyPressed(KeyboardKey.L)) Order("lock"); if (Raylib.IsKeyPressed(KeyboardKey.R)) Order("return"); if (Raylib.IsKeyPressed(KeyboardKey.H)) Order("hold");
             if (Raylib.IsKeyPressed(KeyboardKey.C)) Order("scout"); if (Raylib.IsKeyPressed(KeyboardKey.G)) Order("auto");
             if (Raylib.IsKeyPressed(KeyboardKey.U)) showSheet = true;
@@ -113,7 +113,7 @@ public sealed unsafe partial class Game
             walk.Step(sim, dt, mx, mz); FindNearby();
             if (Raylib.IsKeyPressed(KeyboardKey.E) && nearShip != null) OpenCabin(nearShip); else if (Raylib.IsKeyPressed(KeyboardKey.E) && nearNpc != null) sim.Chat(nearNpc);
             if (Raylib.IsKeyPressed(KeyboardKey.T) && nearNpc != null) sim.Chat(nearNpc);
-            if (Raylib.IsKeyPressed(KeyboardKey.B) || Raylib.IsKeyPressed(KeyboardKey.M)) SetMode(Mode.Cmd);
+            if (Raylib.IsKeyPressed(KeyboardKey.B)) SetMode(Mode.Cmd);
         }
         else if (mode == Mode.Cabin)
         {
@@ -141,7 +141,8 @@ public sealed unsafe partial class Game
             bx -= bw; if (Btn(new Rectangle(bx, 6 * s, bw, bh), "MENU", 15 * s)) showMenu = true;
             bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), "x" + sim.Speed, 15 * s)) sim.Speed = sim.Speed == 1 ? 3 : sim.Speed == 3 ? 6 : 1;
             bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), mode == Mode.Walk ? "MAP" : "BRIDGE", 15 * s)) { if (mode == Mode.Walk) SetMode(Mode.Cmd); else EnterWalk(); }
-            bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), "SCAN", 15 * s)) sim.DoScan();
+            bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), "SCAN", 15 * s)) { sim.DoScan(); Play("scan"); }
+            bx -= bw + 6 * s; if (Btn(new Rectangle(bx, 6 * s, bw, bh), musicOn ? "MUSIC ON" : "MUSIC", 14 * s, musicOn)) ToggleMusic();
             // log
             float ly = 54 * s; foreach (var l in sim.Logs) { DText(l.msg, 13 * s + 1, ly + 1, 14 * s, new Color((byte)0, (byte)0, (byte)0, (byte)200)); DText(l.msg, 12 * s, ly, 14 * s, Rgb(l.color)); ly += 18 * s; }
         }
@@ -231,10 +232,10 @@ public sealed unsafe partial class Game
         if (sel != null)
         {
             DText(sel.name + "'s ship", x, y, 14 * s, Dim); y += 22 * s;
-            foreach (var u in Data.ShipUp) { int lv = Sim.Lvl(sel, u.key), c = Data.Cost(u.cost, lv); DText($"{u.label} Lv {lv + 1}", x, y, 15 * s, Txt); DText(u.desc, x, y + 18 * s, 11 * s, Dim); if (Btn(new Rectangle(r.X + cw - 96 * s, y - 4 * s, 80 * s, 34 * s), lv >= 8 ? "MAX" : c.ToString(), 14 * s, false, G.aeth >= c && lv < 8)) sim.BuyShipUp(sel, u.key); y += rowH; }
+            foreach (var u in Data.ShipUp) { int lv = Sim.Lvl(sel, u.key), c = Data.Cost(u.cost, lv); DText($"{u.label} Lv {lv + 1}", x, y, 15 * s, Txt); DText(u.desc, x, y + 18 * s, 11 * s, Dim); if (Btn(new Rectangle(r.X + cw - 96 * s, y - 4 * s, 80 * s, 34 * s), lv >= 8 ? "MAX" : c.ToString(), 14 * s, false, G.aeth >= c && lv < 8)) { if (sim.BuyShipUp(sel, u.key)) Play("up"); } y += rowH; }
         }
         DText("The Executor", x, y, 14 * s, Dim); y += 22 * s;
-        foreach (var u in Data.ExecUp) { int lv = u.key == "sensors" ? G.upSensors : G.upQuarters, c = Data.Cost(u.cost, lv); DText($"{u.label} Lv {lv}/{u.max}", x, y, 15 * s, Txt); DText(u.desc, x, y + 18 * s, 11 * s, Dim); if (Btn(new Rectangle(r.X + cw - 96 * s, y - 4 * s, 80 * s, 34 * s), lv >= u.max ? "MAX" : c.ToString(), 14 * s, false, G.aeth >= c && lv < u.max)) sim.BuyExecUp(u.key); y += rowH; }
+        foreach (var u in Data.ExecUp) { int lv = u.key == "sensors" ? G.upSensors : G.upQuarters, c = Data.Cost(u.cost, lv); DText($"{u.label} Lv {lv}/{u.max}", x, y, 15 * s, Txt); DText(u.desc, x, y + 18 * s, 11 * s, Dim); if (Btn(new Rectangle(r.X + cw - 96 * s, y - 4 * s, 80 * s, 34 * s), lv >= u.max ? "MAX" : c.ToString(), 14 * s, false, G.aeth >= c && lv < u.max)) { if (sim.BuyExecUp(u.key)) Play("up2"); } y += rowH; }
         if (Btn(new Rectangle(x, r.Y + ch - 46 * s, cw - 32 * s, 34 * s), "CLOSE", 15 * s)) showSheet = false;
     }
     void DrawMenu(float W, float H, float s)

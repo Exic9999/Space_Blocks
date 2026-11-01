@@ -86,3 +86,59 @@ public sealed unsafe partial class Game
         var img = Raylib.LoadImageFromScreen(); Raylib.ExportImage(img, "shots/box.png"); Raylib.CloseWindow(); return 0;
     }
 }
+
+public sealed unsafe partial class Game
+{
+    public int RunUiTest()
+    {
+        int pass = 0, fail = 0; void Ok(string n, bool c, string x = "") { if (c) pass++; else fail++; Console.WriteLine((c ? "PASS " : "FAIL ") + n + (!c && x != "" ? " :: " + x : "")); }
+        Init(false, 1280, 720); Boot(); Ok("boots to title", mode == Mode.Title);
+        if (File.Exists(Sim.SavePath)) File.Move(Sim.SavePath, Sim.SavePath + ".uitest-bak", true);
+        try
+        {
+            StartNew(false); sim.Rng = new Random(3); for (int i = 0; i < 90; i++) Frame(1f / 60);
+            Ok("new game starts in command view", mode == Mode.Cmd && sim.G.ships.Count == 3 && sel != null);
+            // tap the Executor -> selects a docked pilot
+            sel = null; cam.dist = 2200; cam.el = .55f; Frame(1f / 60);
+            var exs = Raylib.GetWorldToScreen(new Vector3(Data.EXx, 60, Data.EXy), cam3); Tap(exs);
+            Ok("tapping the Executor selects a docked pilot", sel != null && sel.state == "docked");
+            // tap an island by its projected position
+            var isl = sim.G.isl[0]; cam.follow = null; cam.tx = isl.x; cam.tz = isl.y; cam.ty = isl.h; cam.dist = 900; Frame(1f / 60);
+            var ip = Raylib.GetWorldToScreen(new Vector3(isl.x, isl.h, isl.y), cam3); Tap(ip);
+            Ok("tapping an island selects it (raycast)", selIsl == isl);
+            Order("lock"); Ok("LOCK ON gives a mine order to that island", sel!.order?.type == "mine" && sel.order.isl == isl.id);
+            Order("hold"); Ok("order hold", sel.order?.type == "hold"); Order("scout"); Ok("order scout", sel.order?.type == "scout"); Order("auto"); Ok("order auto", sel.order?.type == "auto");
+            // upgrades via sim as the sheet would
+            sim.G.aeth = 500; showSheet = true; for (int i = 0; i < 5; i++) Frame(1f / 60); Ok("upgrade sheet renders", showSheet);
+            int eng = sel.lv.eng; sim.BuyShipUp(sel, "eng"); for (int i = 0; i < 3; i++) Frame(1f / 60); Ok("buying engine rebuilds ship mesh", sel.lv.eng == eng + 1 && shipVis[sel.idx].Sig.StartsWith((eng + 1).ToString())); showSheet = false;
+            // walk + cabin
+            EnterWalk(); for (int i = 0; i < 30; i++) Frame(1f / 60); Ok("BRIDGE enters walk mode", mode == Mode.Walk && walk.Where() == "Command Bridge");
+            for (int i = 0; i < 600 && walk.z < 20; i++) { walk.Step(sim, .016f, 0, 1); if (walk.z < -20 && walk.x < 1.9f) walk.Step(sim, .016f, 1, 0); }
+            Ok("walk reaches the hangar", walk.z > 15, $"z={walk.z:F1} x={walk.x:F1}");
+            FindNearby(); var ns = sim.G.ships.FirstOrDefault(s => s.state == "docked"); walk.x = Data.Pads[ns!.idx][0] + (Data.Pads[ns.idx][0] <= 0 ? 4.5f : -4.5f); walk.z = Data.Pads[ns.idx][1]; FindNearby();
+            Ok("ENTER prompt available near a docked ship", nearShip != null);
+            OpenCabin(nearShip ?? ns); for (int i = 0; i < 20; i++) Frame(1f / 60); Ok("cabin opens", mode == Mode.Cabin && cabShip != null);
+            SetMode(Mode.Walk); Ok("leave ship returns to walk", mode == Mode.Walk); SetMode(Mode.Cmd); for (int i = 0; i < 10; i++) Frame(1f / 60); Ok("command view returns", mode == Mode.Cmd);
+            for (int k = 0; k < 5; k++) { OpenCabin(sim.G.ships[Math.Min(k, sim.G.ships.Count - 1)]); Frame(1f / 60); SetMode(Mode.Cmd); } Ok("cabins for all crew build without error", true);
+            // save / continue
+            sim.G.aeth = 777; DoSave(); sim.G.aeth = 1; Ok("continue restores progress", ContinueGame() && MathF.Abs(sim.G.aeth - 777) < .5f && mode == Mode.Cmd);
+            // crawl
+            StartCrawl(Data.Prologue, null); for (int i = 0; i < 5; i++) Frame(1f / 60); Ok("crawl overlay shown", crawlActive); EndCrawl(); Ok("crawl skip works", !crawlActive);
+            // speed + soak in engine at x6
+            sim.Speed = 6; for (int i = 0; i < 1800; i++) Frame(1f / 60); Ok("30 s of x6 frames ran clean", sim.G.t > 100 && !float.IsNaN(sim.G.aeth));
+            // all modes render with a storm and discoveries in play
+            sim.G.nextStorm = 0; for (int i = 0; i < 600; i++) Frame(1f / 60); Ok("storm frames render", true);
+        }
+        finally { if (File.Exists(Sim.SavePath + ".uitest-bak")) File.Move(Sim.SavePath + ".uitest-bak", Sim.SavePath, true); else if (File.Exists(Sim.SavePath)) File.Delete(Sim.SavePath); }
+        Raylib.CloseWindow(); Console.WriteLine($"\n{pass}/{pass + fail} passed"); return fail == 0 ? 0 : 1;
+    }
+
+    public int RunAudioTest()
+    {
+        Init(false, 320, 200, true); Console.WriteLine("audio device ready: " + audioOk); if (!audioOk) { Raylib.CloseWindow(); return 2; }
+        SetMusic(true); double t0 = Raylib.GetTime(); while (Raylib.GetTime() - t0 < 1.5) { UpdateAudio(.016f); Raylib.BeginDrawing(); Raylib.EndDrawing(); }
+        bool playing = Raylib.IsMusicStreamPlaying(music); float tp = Raylib.GetMusicTimePlayed(music), len = Raylib.GetMusicTimeLength(music);
+        Play("scan"); Play("up"); Console.WriteLine($"music playing={playing} played={tp:F2}s length={len:F1}s"); ShutdownAudio(); Raylib.CloseWindow();
+        return playing && tp > .5f && len > 20 ? 0 : 1;
+    }
+}

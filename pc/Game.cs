@@ -35,7 +35,7 @@ public sealed unsafe partial class Game
 
     public static string[] Args = Array.Empty<string>();
 
-    public void Init(bool vsync, int w = 1280, int h = 720)
+    public void Init(bool vsync, int w = 1280, int h = 720, bool audio = false)
     {
         var flags = ConfigFlags.ResizableWindow | ConfigFlags.Msaa4xHint; if (vsync) flags |= ConfigFlags.VSyncHint;
         Raylib.SetConfigFlags(flags); Raylib.SetTraceLogLevel(TraceLogLevel.Warning);
@@ -53,6 +53,7 @@ public sealed unsafe partial class Game
         for (int i = 0; i < 5; i++) figs[i] = Scene.BuildFigure(i);
         for (int i = 0; i < 3; i++) stormFx[i] = MakeStormFx();
         LoadUiFont();
+        if (audio) InitAudio();
     }
 
     StormFx MakeStormFx()
@@ -66,7 +67,7 @@ public sealed unsafe partial class Game
     // ---------------- new / load ----------------
     public void StartNew(bool crawl = true)
     {
-        sim.NewGame(); sel = sim.G.ships[0]; selIsl = null; ResetViews(); SetMode(Mode.Cmd);
+        sim.NewGame(); sel = sim.G.ships[0]; selIsl = null; ResetViews(); SetMode(Mode.Cmd); SetMusic(true);
         if (crawl) StartCrawl(Data.Prologue, null);
     }
     public bool ContinueGame()
@@ -101,6 +102,7 @@ public sealed unsafe partial class Game
             if (mode != Mode.Title) { saveT += dt; if (saveT > 10) { saveT = 0; DoSave(); } }
         }
         if (mode != Mode.Title) DoSave();
+        ShutdownAudio();
     }
     void DoSave() => sim.SaveToDisk(Math.Max(0, sim.G.ships.IndexOf(sel!)));
 
@@ -110,7 +112,7 @@ public sealed unsafe partial class Game
         if (mode != Mode.Title && !paused) sim.Step(dt * sim.Speed);
         if (sim.CrawlRequested) { sim.CrawlRequested = false; StartCrawl(Data.Epilogue, null); }
         if (sim.G.ships.Count > 0) { SyncVis(); UpdateShips(T, dt); }
-        HandleInput(dt);
+        HandleInput(dt); UpdateAudio(dt);
         UpdateCam(dt);
         Raylib.BeginDrawing();
         Raylib.ClearBackground(new Color((byte)5, (byte)7, (byte)16, (byte)255));
@@ -418,7 +420,7 @@ public sealed unsafe partial class Game
     // ---------------- picking ----------------
     void Tap(Vector2 m)
     {
-        var ray = Raylib.GetMouseRay(m, cam3); float bestD = float.MaxValue; Ship? bs = null; Island? bi = null;
+        var ray = Raylib.GetScreenToWorldRay(m, cam3); float bestD = float.MaxValue; Ship? bs = null; Island? bi = null;
         foreach (var s in sim.G.ships) { var v = shipVis[s.idx]; if (v == null || !v.ExtVis) continue; var h = Raylib.GetRayCollisionSphere(ray, v.ExtPos, 34); if (h.Hit && h.Distance < bestD) { bestD = h.Distance; bs = s; bi = null; } }
         foreach (var i in sim.G.isl) { var h = Raylib.GetRayCollisionSphere(ray, new Vector3(i.x, i.h, i.y), i.s * 1.25f); if (h.Hit && h.Distance < bestD) { bestD = h.Distance; bi = i; bs = null; } }
         if (bs != null) { sel = bs; selIsl = null; cam.follow = bs; return; }
