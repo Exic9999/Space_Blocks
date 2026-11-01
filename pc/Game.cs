@@ -170,7 +170,7 @@ public sealed unsafe partial class Game
             float da = 60; var ti = s.target >= 0 ? sim.G.isl[s.target] : null;
             if (s.state == "mining" && ti != null) da = sim.GroundY(ti, Sim.Shape(ti).Clearing.X, Sim.Shape(ti).Clearing.Y) + 30; else if (s.state == "out" && ti != null) da = sim.GroundY(ti, Sim.Shape(ti).Clearing.X, Sim.Shape(ti).Clearing.Y) + 60;
             else if (s.state == "in") { float d = Mx.Hypot(s.x - sim.G.exx, s.y - sim.G.exy); da = d < 500 ? 20 : 60; } else if (s.state is "landing" or "takeoff" or "docked") da = 20;
-            if (s.state is "out" or "in" or "mining") da = MathF.Max(da, sim.CruiseFloor(s.x, s.y)); // fly over mountains, not through them
+            if (s.state is "out" or "in") da = MathF.Max(da, sim.CruiseFloor(s.x, s.y, s.ang)); // fly over mountains, not through them
             s.alt += (da - s.alt) * MathF.Min(1, dt * 1.2f);
             bool ev = true, iv = false; float? yaw = null; float roll = 0;
             Vector3 ep = default, ip = default; float irx = 0, iry = 0;

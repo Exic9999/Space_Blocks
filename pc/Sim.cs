@@ -465,7 +465,21 @@ public sealed class Sim
     public (float x, float z) LandSpot(Island i) { var p = Shape(i).Pad; return (p.X, p.Y); }
     public Pt DockPt(Island i) { var c = Shape(i).Clearing; return new Pt(i.x + c.X, i.y + c.Y); } // where pilots hover to mine
     public float TopY(Island i) => i.h + Bob(i) + Shape(i).MaxHeight; // highest point of the island
-    public float CruiseFloor(float x, float y) { float f = 0; foreach (var i in G.isl) if (Mx.Hypot(i.x - x, i.y - y) < i.s + 60) f = MathF.Max(f, TopY(i) + 30); return f; }
+    // lowest safe altitude here and a short way ahead: the terrain below plus clearance (not the whole island's peak)
+    public float CruiseFloor(float x, float y, float ang)
+    {
+        float f = 0;
+        foreach (var i in G.isl)
+        {
+            if (Mx.Hypot(i.x - x, i.y - y) > i.s + 160) continue; var sh = Shape(i);
+            foreach (float ahead in new[] { 0f, 45f, 100f, 170f })
+            {
+                float px = x + MathF.Cos(ang) * ahead - i.x, pz = y + MathF.Sin(ang) * ahead - i.y, r = Mx.Hypot(px, pz); if (r > i.s * 1.02f) continue;
+                f = MathF.Max(f, i.h + Bob(i) + sh.Height(px, pz) + 30);
+            }
+        }
+        return f;
+    }
     public static List<(float x, float z)> OreNodes(Island i) => Terrain.Get(i).Nodes.Select(v => (v.X, v.Y)).ToList();
     public int VisibleNodes(Island i) { int n = Shape(i).Nodes.Count; return Math.Clamp((int)MathF.Ceiling(i.aeth / i.max * n - .001f), 0, n); }
     public int NearestNode(Island i, float ex, float ez, float reach = 3.6f)

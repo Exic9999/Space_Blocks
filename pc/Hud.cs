@@ -10,7 +10,7 @@ public sealed unsafe partial class Game
     Chapter? crawlCh; float crawlT, crawlDur; Action? crawlDone;
     readonly List<Rectangle> hit = new(), prevHit = new();
     Vector2 mouse, dragStart; bool dragging; float dragMoved;
-    bool clickPressed; int curLayer;
+    bool clickPressed, cursorLocked; int curLayer;
     public bool Inject; public Vector2 InjMouse; public bool InjClick, InjDown, InjUp; bool mouseDown, mouseUp;
     int TopLayer => crawlActive ? 2 : (showSheet || showMenu) ? 1 : 0;
     float S => Math.Max(.7f, Raylib.GetScreenHeight() / 720f);
@@ -73,7 +73,10 @@ public sealed unsafe partial class Game
 
     void HandleInput(float dt)
     {
+        bool wantLock = (mode == Mode.Walk || mode == Mode.Eva) && !(showMenu || showSheet || crawlActive);
+        if (wantLock != cursorLocked) { if (wantLock) Raylib.DisableCursor(); else Raylib.EnableCursor(); cursorLocked = wantLock; }
         if (Inject) { mouse = InjMouse; clickPressed = InjClick; InjClick = false; mouseDown = InjDown; mouseUp = InjUp; InjUp = false; } else { mouse = Raylib.GetMousePosition(); clickPressed = Raylib.IsMouseButtonPressed(MouseButton.Left); mouseDown = Raylib.IsMouseButtonDown(MouseButton.Left); mouseUp = Raylib.IsMouseButtonReleased(MouseButton.Left); }
+        if (cursorLocked && !Inject) mouse = new Vector2(Raylib.GetScreenWidth() / 2f, Raylib.GetScreenHeight() / 2f); // the crosshair: the virtual cursor must never hit HUD buttons
         if (Raylib.IsKeyPressed(KeyboardKey.Escape))
         {
             if (crawlActive) EndCrawl(); else if (showSheet) showSheet = false; else if (showMenu) showMenu = false;

@@ -233,6 +233,12 @@ public static class SelfTest
         for (int round = 0; round < 40; round++) { fs.RollHaunting(fi2); foreach (var mo in fs.Monsters) { mo.awake = true; } for (int k = 0; k < 150; k++) { float prevHp = fc.hp; fs.Step(.1f); if (fc.hp > prevHp + 20) respawns++; var tgt = fs.Monsters.FirstOrDefault(q => !q.dead); if (tgt != null && k % 7 == 0) fs.MeleeMonsters(MathF.Atan2(-(tgt.x - fc.ex), -(tgt.z - fc.ez)), 3.6f, 22); if (float.IsNaN(fc.hp) || float.IsNaN(fc.ex) || fs.Monsters.Any(q => float.IsNaN(q.x))) fightOk = false; } }
         Ok("40 rounds of fighting: no NaN, health stays in range", fightOk && fc.hp > 0 && fc.hp <= 100.01f);
 
+        // ---- pilots clear the terrain below them, not the island's highest peak ----
+        var cfS = new Sim { Rng = new Random(4) }; cfS.NewGame(2025); var big = cfS.G.isl.Where(o => Terrain.Get(o).Peaks.Count > 0).OrderByDescending(o => o.s).First(); var bsh = Terrain.Get(big);
+        float overPeak = cfS.CruiseFloor(big.x + bsh.SummitPos.X, big.y + bsh.SummitPos.Y, 0), overPad = cfS.CruiseFloor(big.x + bsh.Pad.X, big.y + bsh.Pad.Y, 0), nowhere = cfS.CruiseFloor(Data.CX, Data.CY, 0);
+        Ok("cruise floor rises over the summit but stays low over the pad", overPeak > overPad + 8 && overPad < cfS.TopY(big) - 8, $"peak={overPeak:F0} pad={overPad:F0} top={cfS.TopY(big):F0}");
+        Ok("cruise floor is zero in open space", nowhere == 0);
+        float aheadFloor = cfS.CruiseFloor(big.x + bsh.SummitPos.X - 150, big.y + bsh.SummitPos.Y, 0); Ok("cruise floor looks ahead so ships climb before a ridge", aheadFloor > overPad || bsh.SummitPos.X - 150 < -big.s);
         // soak at dt=0.6 for 90 game minutes
         var soak = new Sim { Rng = new Random(99) }; soak.NewGame(777);
         foreach (var s in soak.G.ships) soak.GiveOrder(s, "auto");
