@@ -108,6 +108,7 @@ public sealed unsafe partial class Game
             if (Raylib.IsKeyPressed(KeyboardKey.U)) showSheet = true;
             if (Raylib.IsKeyPressed(KeyboardKey.V) && sel != null) OpenCabin(sel);
             if (Raylib.IsKeyPressed(KeyboardKey.B)) ReturnToBody();
+            if (selExec && Raylib.IsKeyPressed(KeyboardKey.E) && sim.G.cap.state == "docked") ReturnToBody();
             if (Raylib.IsKeyPressed(KeyboardKey.Tab))
             {
                 var f = sim.G.isl.Where(i => i.found).ToList(); if (f.Count > 0) { int ix = selIsl == null ? -1 : f.IndexOf(selIsl); selIsl = f[(ix + 1) % f.Count]; }
@@ -143,7 +144,7 @@ public sealed unsafe partial class Game
     string EAction() => nearCap ? "board" : (nearDep && sim.G.cap.ore >= 1) || (nearFuelSt && sim.G.cap.state == "docked" && sim.G.cap.fuel < Sim.CapFuelMax - .01f) ? "service" : nearShip != null ? "enter" : nearHelm ? "helm" : nearNpc != null ? "talk" : "";
     void UseE() { switch (EAction()) { case "board": BoardCaptain(); break; case "enter": OpenCabin(nearShip!); break; case "helm": UseHelm(); break; case "talk": sim.Chat(nearNpc!); break; } }
     void BoardCaptain() { if (sim.CapLaunch()) { capCamInit = false; SetMode(Mode.Fly); } }
-    void UseHelm() { selExec = true; execFollow = true; cam.follow = null; cam.dist = 1400; SetMode(Mode.Cmd); sim.Say("Helm: click empty space to set a course, or pick an island and press L.", 0x5adcff); }
+    void UseHelm() { selExec = true; execFollow = true; cam.follow = null; cam.dist = 1400; SetMode(Mode.Cmd); sim.Say("Helm: click empty space (or pick an island and press L) to sail. Press B, E or LEAVE HELM to walk away.", 0x5adcff); }
     void EnterWalk() { walk.x = 0; walk.z = -22.5f; walk.yaw = 0; walk.pitch = 0; SetMode(Mode.Walk); }
 
     // ---------------- HUD ----------------
@@ -218,10 +219,10 @@ public sealed unsafe partial class Game
         if (selIsl != null) inf += (inf.Length > 0 ? "     |     " : "") + $"{selIsl.name}: " + (selIsl.found ? $"{(int)selIsl.aeth} Aetherite" : "unknown signal");
         DText(inf, 12 * s, H - ph + 70 * s, 14 * s, Txt);
         float by = H - ph + 100 * s, bh = 40 * s; var names = new List<(string, string)>();
-        if (selExec) { if (selIsl != null && selIsl.found) names.Add(("SAIL TO ISLAND [L]", "lock")); names.AddRange(new[] { ("HALT [H]", "hold"), ("UPGRADE [U]", "up") }); }
+        if (selExec) { if (selIsl != null && selIsl.found) names.Add(("SAIL TO ISLAND [L]", "lock")); names.AddRange(new[] { ("HALT [H]", "hold"), ("LEAVE HELM [B]", "leave"), ("UPGRADE [U]", "up") }); }
         else { if (selIsl != null && selIsl.found) names.Add(("LOCK ON [L]", "lock")); names.AddRange(new[] { ("RETURN [R]", "return"), ("HOLD [H]", "hold"), ("SCOUT [C]", "scout"), ("AUTO [G]", "auto"), ("CABIN [V]", "cabin"), ("UPGRADE [U]", "up") }); }
         float bw = Math.Min(130 * s, (W - 20 * s - 6 * s * names.Count) / names.Count), bx = 10 * s;
-        foreach (var (label, key) in names) { if (Btn(new Rectangle(bx, by, bw, bh), label, 13 * s, key == "lock")) { if (key == "up") showSheet = true; else if (key == "cabin") { if (sel != null) OpenCabin(sel); } else Order(key); } bx += bw + 6 * s; }
+        foreach (var (label, key) in names) { if (Btn(new Rectangle(bx, by, bw, bh), label, 13 * s, key == "lock")) { if (key == "up") showSheet = true; else if (key == "leave") ReturnToBody(); else if (key == "cabin") { if (sel != null) OpenCabin(sel); } else Order(key); } bx += bw + 6 * s; }
         // radar
         float rs = 130 * s, rx = W - rs - 8 * s, ry = 52 * s; var rr = new Rectangle(rx, ry, rs, rs); Box(rr, new Color((byte)11, (byte)19, (byte)38, (byte)205)); float k = rs / Data.W;
         if (clickPressed && curLayer >= TopLayer && Over(rr)) { cam.follow = null; execFollow = false; cam.tx = Math.Clamp((mouse.X - rx) / k, 0, Data.W); cam.tz = Math.Clamp((mouse.Y - ry) / k, 0, Data.W); cam.ty = 0; }
